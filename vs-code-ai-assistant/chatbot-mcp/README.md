@@ -1,0 +1,1 @@
+this is an mcp server extension for coding assistant
