@@ -1,0 +1,36 @@
+# Node.js dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+.vscode-test/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and IDE junk
+.DS_Store
+Thumbs.db
+
+# VS Code settings (optional, you can keep them if you want to share settings)
+.vscode/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Compiled files
+*.js.map
+*.js
+*.d.ts
+
+# VSIX packages (created via `vsce package`)
+*.vsix

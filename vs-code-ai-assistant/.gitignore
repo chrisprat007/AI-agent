@@ -1,16 +1,42 @@
-# Node.js
+# Node.js dependencies
 node_modules/
+
+# VS Code extension packaging
+.vscode-test/
+out/
 dist/
-*.log
+coverage/
+
+# Optional build artifacts
+*.vsix
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
 
-# VS Code
-.vscode/
-*.vsix
-
-# OS
+# OS-specific
 .DS_Store
 Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# VS Code workspace settings (optional to share)
+.vscode/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Testing & coverage
+coverage/
+nyc_output/
+
+# Optional if you use webpack or other bundlers
+build/
+temp/
+
+# Mac/Linux system files
+.idea/
+*.swp

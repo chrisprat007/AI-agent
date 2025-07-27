@@ -1,39 +1,64 @@
 {
-  "name": "chatbot-mcp",
-  "displayName": "coding-agent",
-  "description": "chatbot mcp-extension",
-  "version": "0.0.1",
+  "name": "coding-chatbot-mcp",
+  "displayName": "Coding Chatbot MCP",
+  "description": "VS Code extension with MCP server for coding assistance",
+  "version": "1.0.0",
   "engines": {
-    "vscode": "^1.54.0"
+    "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": ["onStartupFinished"],
-  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "/out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "chatbot-mcp.helloWorld",
-        "title": "Hello World"
+        "command": "codingChatbot.start",
+        "title": "Start Coding Chatbot"
+      },
+      {
+        "command": "codingChatbot.stop",
+        "title": "Stop Coding Chatbot"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Coding Chatbot MCP",
+      "properties": {
+        "codingChatbot.httpPort": {
+          "type": "number",
+          "default": 3001,
+          "description": "HTTP server port for frontend communication"
+        },
+        "codingChatbot.mcpPort": {
+          "type": "number",
+          "default": 3002,
+          "description": "MCP server socket port"
+        }
+      }
+    }
   },
   "scripts": {
-    "lint": "eslint .",
-    "pretest": "npm run lint",
-    "test": "vscode-test"
+    "compile": "tsc",
+    "watch": "tsc -w"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
-    "@types/vscode": "^1.54.0",
+    "@types/node": "^20.19.9",
+    "@types/vscode": "^1.74.0",
+    "@types/ws": "^8.18.1",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
-    "eslint": "^9.25.1"
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.16.0",
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "express": "^4.18.2",
+    "ws": "^8.18.3",
+    "zod": "^3.25.76"
   }
 }
