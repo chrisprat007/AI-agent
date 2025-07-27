@@ -1,49 +1,35 @@
 import * as vscode from 'vscode';
 import { McpServerManager } from './mcpServer';
-import { HttpServerManager } from './httpServer';
+import { WebSocketServer } from 'ws';
 
 let mcpServerManager: McpServerManager;
-let httpServerManager: HttpServerManager;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Coding Chatbot MCP extension is now active!');
+  const wsServer = new WebSocketServer({ port: 4001 });
 
-    // Initialize managers
-    mcpServerManager = new McpServerManager(context);
-    httpServerManager = new HttpServerManager(context, mcpServerManager);
+  wsServer.on('connection', async (socket, request) => {
+    const url = new URL(request.url ?? '', 'ws://localhost');
+    const userId = url.searchParams.get('userId');
 
-    // Register commands
-    const startCommand = vscode.commands.registerCommand('codingChatbot.start', async () => {
-        try {
-            await mcpServerManager.start();
-            await httpServerManager.start();
-            vscode.window.showInformationMessage('Coding Chatbot MCP started successfully!');
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to start Coding Chatbot MCP: ${error}`);
-        }
-    });
-
-    const stopCommand = vscode.commands.registerCommand('codingChatbot.stop', async () => {
-        try {
-            await mcpServerManager.stop();
-            await httpServerManager.stop();
-            vscode.window.showInformationMessage('Coding Chatbot MCP stopped successfully!');
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to stop Coding Chatbot MCP: ${error}`);
-        }
-    });
-
-    context.subscriptions.push(startCommand, stopCommand);
-
-    // Auto-start on extension activation
-    vscode.commands.executeCommand('codingChatbot.start');
-}
-
-export function deactivate() {
-    if (mcpServerManager) {
-        mcpServerManager.stop();
+    if (!userId) {
+      socket.send(JSON.stringify({
+        type: 'error',
+        message: 'Missing userId in connection URL',
+      }));
+      socket.close(1008, 'Missing userId');
+      return;
     }
-    if (httpServerManager) {
-        httpServerManager.stop();
-    }
+
+    console.log(`Frontend connected with userId: ${userId}`);
+
+    // Start the MCP server after receiving userId from frontend
+    const mcpServerManager = new McpServerManager(context, userId);
+    await mcpServerManager.start();
+
+    // ✅ Notify frontend that the extension is ready
+    socket.send(JSON.stringify({
+      type: 'ready',
+      message: 'Extension ready',
+    }));
+  });
 }

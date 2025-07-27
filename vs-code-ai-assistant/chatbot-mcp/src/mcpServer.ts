@@ -13,10 +13,12 @@ export class McpServerManager {
   private mcpServer: McpServer;
   private wsServer: WebSocketServer | null = null;
   private port: number;
+  private userId: string;
   private context: vscode.ExtensionContext;
 
-  constructor(context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext, userId: string) {
     this.context = context;
+    this.userId = userId;
     this.port = vscode.workspace
       .getConfiguration("codingChatbot")
       .get("mcpPort", 3002);
@@ -330,18 +332,20 @@ export class McpServerManager {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket(`ws://localhost:${this.port}`);
+        const ws = new WebSocket(
+          `ws://localhost:3002?userId=${encodeURIComponent(this.userId)}`
+        );
 
         ws.on("open", async () => {
-          console.log("Connected to MCP WebSocket server");
+          console.log("Connected to MCP server as user:", this.userId);
           const transport = new WebSocketTransport(ws);
           await this.mcpServer.connect(transport);
           resolve();
         });
 
-        ws.on("error", (error) => {
-          console.error("WebSocket connection error:", error);
-          reject(error);
+        ws.on("error", (err) => {
+          console.error("WebSocket connection error:", err);
+          reject(err);
         });
 
         ws.on("close", () => {
