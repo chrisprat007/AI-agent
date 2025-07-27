@@ -1,0 +1,36 @@
+# Core FastAPI and Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# WebSocket Support
+websockets==12.0
+
+# HTTP Client for LLM API calls
+httpx==0.25.2
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Data Validation and Serialization
+pydantic==2.5.0
+
+# JSON handling (usually built-in, but explicit for clarity)
+# json - built-in module
+
+# Async Support
+asyncio-mqtt==0.13.0  # Optional: if you need MQTT support later
+
+# Development and Testing (Optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-httpx==0.26.0
+
+# Logging (Optional but recommended)
+structlog==23.2.0
+
+# Type Hints Support
+typing-extensions==4.8.0
+
+# UUID support (built-in, but some systems might need this)
+# uuid - built-in module
