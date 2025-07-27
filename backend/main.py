@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
 from connection_store import (
     add_connection, remove_connection, get_connection, 
-    update_tools, mark_initialized
+    update_tools, mark_initialized, active_connections
 )
 from llm_client import get_llm_response_with_tools
 from mcp_protocol import mcp_handler
@@ -109,33 +109,48 @@ async def handle_chat(req: ChatRequest):
     
     # Handle tool usage
     if llm_response["type"] == "tool_use":
-        tool_result = await execute_tool(
-            user_id,
-            llm_response["tool_name"], 
-            llm_response["tool_args"]
-        )
+        tool_results = []
+        tool_calls = llm_response["tool_calls"]
         
-        # Get final response from LLM with tool result
+        # Execute all tool calls in sequence
+        for tool_call in tool_calls:
+            try:
+                tool_result = await execute_tool(
+                    user_id,
+                    tool_call["tool_name"], 
+                    tool_call["tool_args"]
+                )
+                tool_results.append({
+                    "tool_name": tool_call["tool_name"],
+                    "result": tool_result,
+                    "reasoning": tool_call.get("reasoning", "")
+                })
+            except Exception as e:
+                tool_results.append({
+                    "tool_name": tool_call["tool_name"],
+                    "result": f"Error: {str(e)}",
+                    "reasoning": tool_call.get("reasoning", "")
+                })
+        
+        # Get final response from LLM with all tool results
         final_response = await get_llm_response_with_tools(
-            f"Tool '{llm_response['tool_name']}' executed with result: {tool_result}. Please provide a natural language response to the user.",
+            f"All tools have been executed. Please provide a natural language response to the user based on the tool results.",
             connection.available_tools,
-            req.conversation_history + [
-                {"role": "assistant", "content": llm_response["reasoning"]},
-                {"role": "system", "content": f"Tool result: {tool_result}"}
-            ]
+            req.conversation_history,
+            tool_results
         )
         
         return {
             "response": final_response["content"],
-            "tool_used": llm_response["tool_name"],
-            "tool_result": tool_result,
-            "reasoning": llm_response["reasoning"]
+            "tools_used": [result["tool_name"] for result in tool_results],
+            "tool_results": tool_results,
+            "tool_count": len(tool_results)
         }
     
     else:
         return {
             "response": llm_response["content"],
-            "tool_used": None
+            "tools_used": None
         }
 
 async def execute_tool(user_id: str, tool_name: str, tool_args: dict):
