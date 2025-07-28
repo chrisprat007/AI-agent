@@ -43,6 +43,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 async def initialize_mcp_session(user_id: str):
     """Initialize MCP session and get available tools"""
     connection = get_connection(user_id)
+    print(f"MCP[{user_id}] connection:", connection)
     if not connection:
         return
     
@@ -54,7 +55,8 @@ async def initialize_mcp_session(user_id: str):
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {}
+                    "tools": {},
+                    "resources": {}
                 },
                 "clientInfo": {
                     "name": "backend-server",
@@ -62,6 +64,8 @@ async def initialize_mcp_session(user_id: str):
                 }
             }
         )
+        
+        print(f"MCP[{user_id}] initialization response:", init_response)
         
         # Get available tools
         tools_response = await mcp_handler.send_request(
@@ -77,6 +81,8 @@ async def initialize_mcp_session(user_id: str):
         
     except Exception as e:
         print(f"Failed to initialize MCP[{user_id}]: {str(e)}")
+        # Don't mark as initialized if there's an error
+        connection.session_initialized = False
 
 # === Enhanced Chat Endpoint ===
 class ChatRequest(BaseModel):
@@ -191,4 +197,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="localhost", port=8000)

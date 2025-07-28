@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { McpServerManager } from "./mcpServer";
 import { WebSocketServer } from "ws";
 
-let mcpServerManager: McpServerManager;
+let mcpServerManager: McpServerManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log("[Extension] Activated ✅");
@@ -13,11 +13,19 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage(
     "Coding Chatbot MCP Extension Activated"
   );
+  const temp = async () => {
+    const mcpServerManager = new McpServerManager(context, "1");
+    await mcpServerManager.start();
+  }
+  temp();
+  
+/*
   const wsServer = new WebSocketServer({ port: 4001 });
-
+  
   wsServer.on("connection", async (socket, request) => {
     const url = new URL(request.url ?? "", "ws://localhost");
     const userId = url.searchParams.get("userId");
+   
 
     if (!userId) {
       socket.send(
@@ -43,5 +51,5 @@ export function activate(context: vscode.ExtensionContext) {
         message: "Extension ready",
       })
     );
-  });
+  });*/
 }

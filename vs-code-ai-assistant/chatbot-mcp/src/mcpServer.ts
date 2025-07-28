@@ -339,35 +339,32 @@ export class McpServerManager {
   private async connectToBackend(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(`Connecting to backend at: ${this.backendUrl}/mcp/connect`);
         
-        this.webSocket = new WebSocket(`${this.backendUrl}/mcp/connect`);
+        this.webSocket = new WebSocket(`${this.backendUrl}/ws/${this.userId}`);
 
         this.webSocket.on("open", async () => {
           console.log("Connected to FastAPI backend");
           
-          // Send initial connection message with user_id
-          this.webSocket!.send(JSON.stringify({
-            type: "connection",
-            user_id: this.userId
-          }));
+          try {
+            // Establish MCP transport immediately after connection
+            console.log(`Connecting to backend at: ${this.backendUrl}/ws/${this.userId}`);
+        
+            const transport = new WebSocketTransport(this.webSocket!);
+            await this.mcpServer.connect(transport);
+            
+            this.isConnected = true;
+            vscode.window.showInformationMessage("MCP Server connected to backend!");
+            resolve();
+          } catch (error) {
+            console.error("Failed to establish MCP transport:", error);
+            reject(error);
+          }
         });
 
         this.webSocket.on("message", async (data: Buffer | string) => {
           try {
             const message = JSON.parse(data.toString());
-            
-            if (message.type === "connection_ack") {
-              console.log("Connection acknowledged by backend");
-              
-              // Now establish MCP transport
-              const transport = new WebSocketTransport(this.webSocket!);
-              await this.mcpServer.connect(transport);
-              
-              this.isConnected = true;
-              vscode.window.showInformationMessage("MCP Server connected to backend!");
-              resolve();
-            }
+            console.log("Received message from backend:", message);
           } catch (error) {
             console.error("Error processing message:", error);
           }
