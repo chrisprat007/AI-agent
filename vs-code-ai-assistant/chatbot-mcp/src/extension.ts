@@ -1,22 +1,32 @@
-import * as vscode from 'vscode';
-import { McpServerManager } from './mcpServer';
-import { WebSocketServer } from 'ws';
+import * as vscode from "vscode";
+import { McpServerManager } from "./mcpServer";
+import { WebSocketServer } from "ws";
 
 let mcpServerManager: McpServerManager;
 
 export function activate(context: vscode.ExtensionContext) {
+  console.log("[Extension] Activated ✅");
+  const outputChannel = vscode.window.createOutputChannel("MCP Agent");
+
+  outputChannel.appendLine("🔌 MCP Extension activated.");
+  outputChannel.show(true);
+  vscode.window.showInformationMessage(
+    "Coding Chatbot MCP Extension Activated"
+  );
   const wsServer = new WebSocketServer({ port: 4001 });
 
-  wsServer.on('connection', async (socket, request) => {
-    const url = new URL(request.url ?? '', 'ws://localhost');
-    const userId = url.searchParams.get('userId');
+  wsServer.on("connection", async (socket, request) => {
+    const url = new URL(request.url ?? "", "ws://localhost");
+    const userId = url.searchParams.get("userId");
 
     if (!userId) {
-      socket.send(JSON.stringify({
-        type: 'error',
-        message: 'Missing userId in connection URL',
-      }));
-      socket.close(1008, 'Missing userId');
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          message: "Missing userId in connection URL",
+        })
+      );
+      socket.close(1008, "Missing userId");
       return;
     }
 
@@ -27,9 +37,11 @@ export function activate(context: vscode.ExtensionContext) {
     await mcpServerManager.start();
 
     // ✅ Notify frontend that the extension is ready
-    socket.send(JSON.stringify({
-      type: 'ready',
-      message: 'Extension ready',
-    }));
+    socket.send(
+      JSON.stringify({
+        type: "ready",
+        message: "Extension ready",
+      })
+    );
   });
 }

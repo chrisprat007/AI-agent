@@ -3,7 +3,7 @@ import {
   McpServer,
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WebSocket, Server as WebSocketServer } from "ws";
+import { WebSocket } from "ws";
 import { WebSocketTransport } from "./websocketTransport";
 import { z } from "zod";
 import * as fs from "fs";
@@ -11,17 +11,22 @@ import * as path from "path";
 
 export class McpServerManager {
   private mcpServer: McpServer;
-  private wsServer: WebSocketServer | null = null;
-  private port: number;
+  private webSocket: WebSocket | null = null;
   private userId: string;
   private context: vscode.ExtensionContext;
+  private backendUrl: string;
+  private reconnectInterval: NodeJS.Timeout | null = null;
+  private isConnected: boolean = false;
 
   constructor(context: vscode.ExtensionContext, userId: string) {
     this.context = context;
     this.userId = userId;
-    this.port = vscode.workspace
+    
+    // Get backend URL from configuration
+    this.backendUrl = vscode.workspace
       .getConfiguration("codingChatbot")
-      .get("mcpPort", 3002);
+      .get("backendUrl", "ws://localhost:8000");
+    
     this.mcpServer = new McpServer({
       name: "vscode-coding-assistant",
       version: "1.0.0",
@@ -30,6 +35,7 @@ export class McpServerManager {
   }
 
   private setupMcpServer() {
+    // Resource registrations
     this.mcpServer.registerResource(
       "workspace-file",
       new ResourceTemplate("file://{filePath}", { list: undefined }),
@@ -99,6 +105,7 @@ export class McpServerManager {
       }
     );
 
+    // Tool registrations
     this.mcpServer.registerTool(
       "create-file",
       {
@@ -329,38 +336,105 @@ export class McpServerManager {
     return structure;
   }
 
-  async start(): Promise<void> {
+  private async connectToBackend(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket(
-          `ws://localhost:3002?userId=${encodeURIComponent(this.userId)}`
-        );
+        console.log(`Connecting to backend at: ${this.backendUrl}/mcp/connect`);
+        
+        this.webSocket = new WebSocket(`${this.backendUrl}/mcp/connect`);
 
-        ws.on("open", async () => {
-          console.log("Connected to MCP server as user:", this.userId);
-          const transport = new WebSocketTransport(ws);
-          await this.mcpServer.connect(transport);
-          resolve();
+        this.webSocket.on("open", async () => {
+          console.log("Connected to FastAPI backend");
+          
+          // Send initial connection message with user_id
+          this.webSocket!.send(JSON.stringify({
+            type: "connection",
+            user_id: this.userId
+          }));
         });
 
-        ws.on("error", (err) => {
+        this.webSocket.on("message", async (data: Buffer | string) => {
+          try {
+            const message = JSON.parse(data.toString());
+            
+            if (message.type === "connection_ack") {
+              console.log("Connection acknowledged by backend");
+              
+              // Now establish MCP transport
+              const transport = new WebSocketTransport(this.webSocket!);
+              await this.mcpServer.connect(transport);
+              
+              this.isConnected = true;
+              vscode.window.showInformationMessage("MCP Server connected to backend!");
+              resolve();
+            }
+          } catch (error) {
+            console.error("Error processing message:", error);
+          }
+        });
+
+        this.webSocket.on("error", (err) => {
           console.error("WebSocket connection error:", err);
+          this.isConnected = false;
+          vscode.window.showErrorMessage(`MCP connection error: ${err.message}`);
           reject(err);
         });
 
-        ws.on("close", () => {
-          console.log("WebSocket connection closed");
+        this.webSocket.on("close", (code, reason) => {
+          console.log(`WebSocket connection closed: ${code} - ${reason}`);
+          this.isConnected = false;
+          vscode.window.showWarningMessage("MCP Server disconnected from backend");
+          
+          // Attempt to reconnect after a delay
+          this.scheduleReconnect();
         });
+
       } catch (error) {
         reject(error);
       }
     });
   }
 
-  async stop(): Promise<void> {
-    if (this.wsServer) {
-      this.wsServer.close();
-      this.wsServer = null;
+  private scheduleReconnect(): void {
+    if (this.reconnectInterval) {
+      clearTimeout(this.reconnectInterval);
     }
+
+    this.reconnectInterval = setTimeout(async () => {
+      console.log("Attempting to reconnect...");
+      try {
+        await this.connectToBackend();
+      } catch (error) {
+        console.error("Reconnection failed:", error);
+        this.scheduleReconnect(); // Try again
+      }
+    }, 5000); // Reconnect after 5 seconds
+  }
+
+  async start(): Promise<void> {
+    try {
+      await this.connectToBackend();
+    } catch (error) {
+      console.error("Failed to start MCP server:", error);
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    if (this.reconnectInterval) {
+      clearTimeout(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+
+    if (this.webSocket) {
+      this.webSocket.close();
+      this.webSocket = null;
+    }
+    
+    this.isConnected = false;
+  }
+
+  public getConnectionStatus(): boolean {
+    return this.isConnected;
   }
 }
