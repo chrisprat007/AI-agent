@@ -40,3 +40,5 @@ temp/
 # Mac/Linux system files
 .idea/
 *.swp
+
+.venv/

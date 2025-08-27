@@ -1,10 +1,14 @@
 {
-  "name": "coding-chatbot-mcp",
-  "displayName": "Coding Chatbot MCP",
-  "description": "VS Code extension with MCP server for coding assistance",
-  "version": "1.0.0",
+  "name": "vscode-mcp-server",
+  "icon": "media/logo.png",
+  "displayName": "vscode-mcp-server",
+  "description": "VS Code as a MCP server",
+  "version": "0.2.0",
+  "repository": "https://github.com/juehang/vscode-mcp-server",
+  "publisher": "JuehangQin",
+  "license": "MIT",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.99.0"
   },
   "categories": [
     "Other"
@@ -12,54 +16,102 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "/out/extension.js",
+  "main": "./out/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "codingChatbot.start",
-        "title": "Start Coding Chatbot"
-      },
-      {
-        "command": "codingChatbot.stop",
-        "title": "Stop Coding Chatbot"
-      }
-    ],
     "configuration": {
-      "title": "Coding Chatbot MCP",
+      "title": "MCP Server",
       "properties": {
-        "codingChatbot.httpPort": {
+        "vscode-mcp-server.port": {
           "type": "number",
-          "default": 3001,
-          "description": "HTTP server port for frontend communication"
+          "default": 3000,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "The port number for the MCP server"
         },
-        "codingChatbot.mcpPort": {
-          "type": "number",
-          "default": 3002,
-          "description": "MCP server socket port"
+        "vscode-mcp-server.defaultEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the MCP server should be enabled by default on VS Code startup"
+        },
+        "vscode-mcp-server.enabledTools": {
+          "type": "object",
+          "default": {
+            "file": true,
+            "edit": true,
+            "shell": true,
+            "diagnostics": true,
+            "symbol": true
+          },
+          "properties": {
+            "file": {
+              "type": "boolean",
+              "description": "Enable file operations tools (read, write, list files)"
+            },
+            "edit": {
+              "type": "boolean", 
+              "description": "Enable file editing tools (create, edit, delete files)"
+            },
+            "shell": {
+              "type": "boolean",
+              "description": "Enable shell command execution tools"
+            },
+            "diagnostics": {
+              "type": "boolean",
+              "description": "Enable VS Code diagnostics tools"
+            },
+            "symbol": {
+              "type": "boolean",
+              "description": "Enable code symbol and structure analysis tools"
+            }
+          },
+          "description": "Configure which MCP tools are enabled"
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "vscode-mcp-server.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "vscode-mcp-server.showServerInfo",
+        "title": "Show MCP Server Information"
+      },
+      {
+        "command": "vscode-mcp-server.toggleServer",
+        "title": "Toggle MCP Server"
+      }
+    ]
   },
   "scripts": {
-    "compile": "tsc",
-    "watch": "tsc -w"
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "^20.19.9",
-    "@types/vscode": "^1.74.0",
-    "@types/ws": "^8.18.1",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2",
-    "eslint": "^9.25.1",
-    "typescript": "^5.8.3"
+    "@types/node": "20.x",
+    "@types/proxyquire": "^1.3.28",
+    "@types/sinon": "^10.0.13",
+    "@types/vscode": "^1.99.0",
+    "@typescript-eslint/eslint-plugin": "^8.28.0",
+    "@typescript-eslint/parser": "^8.28.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.4.2",
+    "eslint": "^9.23.0",
+    "proxyquire": "^2.1.3",
+    "sinon": "^16.1.1",
+    "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.16.0",
-    "axios": "^1.11.0",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "ws": "^8.18.3",
-    "zod": "^3.25.76"
+    "@modelcontextprotocol/inspector": "github:modelcontextprotocol/inspector",
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "@types/express": "^4.17.21",
+    "express": "^4.18.3",
+    "zod": "^3.22.4"
   }
 }
