@@ -1,253 +1,456 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
+import * as vscode from "vscode";
+import * as path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from 'zod';
+import { z } from "zod";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { logger } from "../utils/logger";
+import * as fs from "fs";
 
-// Type for file listing results
-export type FileListingResult = Array<{path: string, type: 'file' | 'directory'}>;
+export type FileListingResult = Array<{
+  path: string;
+  type: "file" | "directory";
+}>;
 
-// Type for the file listing callback function
-export type FileListingCallback = (path: string, recursive: boolean) => Promise<FileListingResult>;
-
-// Default maximum character count
 const DEFAULT_MAX_CHARACTERS = 100000;
+const DEFAULT_IGNORED_DIRS = new Set([
+  // Node.js / frontend
+  "node_modules", "bower_components", ".yarn", ".pnpm-store", ".pnp", ".pnp.js",
 
-/**
- * Lists files and directories in the VS Code workspace
- * @param workspacePath The path within the workspace to list files from
- * @param recursive Whether to list files recursively
- * @returns Array of file and directory entries
- */
-export async function listWorkspaceFiles(workspacePath: string, recursive: boolean = false): Promise<FileListingResult> {
-    console.log(`[listWorkspaceFiles] Starting with path: ${workspacePath}, recursive: ${recursive}`);
-    
-    if (!vscode.workspace.workspaceFolders) {
-        throw new Error('No workspace folder is open');
-    }
+  // IDE / editor
+  ".idea", ".vscode", ".vscodespaces", ".history",
 
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    const workspaceUri = workspaceFolder.uri;
-    
-    // Create URI for the target directory
-    const targetUri = vscode.Uri.joinPath(workspaceUri, workspacePath);
-    console.log(`[listWorkspaceFiles] Target URI: ${targetUri.fsPath}`);
+  // Python / virtualenv / caches
+  ".venv", "venv", "ENV", "env", "__pycache__", ".mypy_cache", ".pytest_cache", ".cache", ".pdm-cache", ".tox",
 
-    async function processDirectory(dirUri: vscode.Uri, currentPath: string = ''): Promise<FileListingResult> {
-        const entries = await vscode.workspace.fs.readDirectory(dirUri);
-        const result: FileListingResult = [];
+  // Java / JVM / Gradle / Maven
+  "build", "target", ".gradle", ".m2", ".ivy2", "*.class",
 
-        for (const [name, type] of entries) {
-            const entryPath = currentPath ? path.join(currentPath, name) : name;
-            const itemType: 'file' | 'directory' = (type & vscode.FileType.Directory) ? 'directory' : 'file';
-            
-            result.push({ path: entryPath, type: itemType });
+  // Ruby / gems
+  "vendor", ".bundle", "*.gem", "*.lock", "*.egg-info",
 
-            if (recursive && itemType === 'directory') {
-                const subDirUri = vscode.Uri.joinPath(dirUri, name);
-                const subEntries = await processDirectory(subDirUri, entryPath);
-                result.push(...subEntries);
-            }
-        }
+  // C / C++ build
+  "bin", "obj", "*.o", "*.obj", "*.exe", "*.out", "*.dll", "*.so",
 
-        return result;
-    }
+  // Frontend / framework build
+  "dist", "out", ".next", ".nuxt", ".serverless", ".parcel-cache", ".cache-loader",
 
-    try {
-        const result = await processDirectory(targetUri);
-        console.log(`[listWorkspaceFiles] Found ${result.length} entries`);
-        return result;
-    } catch (error) {
-        console.error('[listWorkspaceFiles] Error:', error);
-        throw error;
-    }
+  // Containers / infra / terraform
+  ".terraform", ".vagrant",
+
+  // Misc caches & temporary files
+  ".cache", "coverage", ".sass-cache", ".DS_Store", "Thumbs.db", "*.log", "*.tmp", "*.swp", "*.swo",
+
+  // Version control
+  ".git", ".gitignore", ".svn", ".hg", "CVS",
+
+  // System / platform folders
+  "Program Files", "Program Files (x86)", "ProgramData", "Windows",
+
+  // Others
+  ".history", "*.bak", "*.old", "*.backup"
+]);
+
+function workspaceRootUri(): vscode.Uri {
+  if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+    throw new Error("No workspace folder is open");
+  }
+  return vscode.workspace.workspaceFolders[0].uri;
 }
 
 /**
- * Reads a file from the VS Code workspace with character limit check
- * @param workspacePath The path within the workspace to the file
- * @param encoding Encoding to convert the file content to a string. Use 'base64' for base64-encoded string
- * @param maxCharacters Maximum character count (default: 100,000)
- * @param startLine The start line number (0-based, inclusive). Use -1 to read from the beginning.
- * @param endLine The end line number (0-based, inclusive). Use -1 to read to the end.
- * @returns File content as string (either text-encoded or base64)
+ * Wait for workspace to be properly initialized
+ */
+async function waitForWorkspace(timeoutMs: number = 5000): Promise<boolean> {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeoutMs) {
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      logger.info(`Workspace is ready: ${vscode.workspace.workspaceFolders[0].uri.fsPath}`);
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  return false;
+}
+
+/**
+ * Opens workspace for a file and waits for it to be ready
+ */
+async function openWorkspaceForFile(filePath: string): Promise<void> {
+  let folder: string;
+  
+  try {
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      if (stats.isFile()) {
+        folder = path.dirname(filePath);
+      } else {
+        folder = filePath;
+      }
+    } else {
+      // If file doesn't exist, try to determine if it's a filename or directory
+      if (path.extname(filePath)) {
+        // Has extension, treat as file
+        folder = path.dirname(filePath);
+      } else {
+        // No extension, treat as directory
+        folder = filePath;
+      }
+    }
+  } catch (error) {
+    logger.warn(`Error checking file path ${filePath}: ${error}. Using current working directory.`);
+    folder = process.cwd();
+  }
+
+  // Ensure folder exists
+  if (!fs.existsSync(folder)) {
+    logger.warn(`Folder ${folder} doesn't exist. Using current working directory.`);
+    folder = process.cwd();
+  }
+
+  const uri = vscode.Uri.file(folder);
+  logger.info(`Opening workspace at: ${folder}`);
+  
+  // Open folder as workspace (false = replace current workspace)
+  await vscode.commands.executeCommand("vscode.openFolder", uri, false);
+  
+  // Wait for workspace to be ready
+  const isReady = await waitForWorkspace();
+  if (!isReady) {
+    throw new Error(`Workspace failed to initialize within timeout at ${folder}`);
+  }
+  
+  logger.info(`Workspace successfully opened at: ${folder}`);
+}
+
+/**
+ * List files in workspace
+ */
+export async function listWorkspaceFiles(
+  workspacePath: string,
+  recursive: boolean = false,
+  ignored: Set<string> = DEFAULT_IGNORED_DIRS
+): Promise<FileListingResult> {
+  const root = workspaceRootUri();
+  const targetUri = vscode.Uri.joinPath(root, workspacePath);
+
+  async function processDirectory(dirUri: vscode.Uri, currentPath = ""): Promise<FileListingResult> {
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dirUri);
+    } catch (error) {
+      logger.warn(`Failed to read directory ${dirUri.fsPath}: ${error}`);
+      return [];
+    }
+
+    const result: FileListingResult = [];
+    for (const [name, type] of entries) {
+      if (ignored.has(name)) continue;
+      const entryPath = currentPath ? path.join(currentPath, name) : name;
+      const itemType: "file" | "directory" = type & vscode.FileType.Directory ? "directory" : "file";
+      result.push({ path: entryPath, type: itemType });
+
+      if (recursive && itemType === "directory") {
+        const subDirUri = vscode.Uri.joinPath(dirUri, name);
+        const subEntries = await processDirectory(subDirUri, entryPath);
+        result.push(...subEntries);
+      }
+    }
+    return result;
+  }
+
+  return await processDirectory(targetUri);
+}
+
+/**
+ * Read a workspace file
  */
 export async function readWorkspaceFile(
-    workspacePath: string, 
-    encoding: string = 'utf-8', 
-    maxCharacters: number = DEFAULT_MAX_CHARACTERS,
-    startLine: number = -1,
-    endLine: number = -1
+  workspacePath: string,
+  encoding: string = "utf-8",
+  maxCharacters: number = DEFAULT_MAX_CHARACTERS,
+  startLine: number = -1,
+  endLine: number = -1
 ): Promise<string> {
-    console.log(`[readWorkspaceFile] Starting with path: ${workspacePath}, encoding: ${encoding}, maxCharacters: ${maxCharacters}, startLine: ${startLine}, endLine: ${endLine}`);
-    
-    if (!vscode.workspace.workspaceFolders) {
-        throw new Error('No workspace folder is open');
-    }
+  const root = workspaceRootUri();
+  const fileUri = vscode.Uri.joinPath(root, workspacePath);
 
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    const workspaceUri = workspaceFolder.uri;
-    
-    // Create URI for the target file
-    const fileUri = vscode.Uri.joinPath(workspaceUri, workspacePath);
-    console.log(`[readWorkspaceFile] File URI: ${fileUri.fsPath}`);
+  const fileContent = await vscode.workspace.fs.readFile(fileUri);
+  const textContent = encoding === "base64" 
+    ? Buffer.from(fileContent).toString("base64")
+    : new TextDecoder(encoding).decode(fileContent);
 
-    try {
-        // Read the file content as Uint8Array
-        const fileContent = await vscode.workspace.fs.readFile(fileUri);
-        console.log(`[readWorkspaceFile] File read successfully, size: ${fileContent.byteLength} bytes`);
-        
-        if (encoding === 'base64') {
-            // Special case for base64 encoding
-            if (fileContent.byteLength > maxCharacters) {
-                throw new Error(`File content exceeds the maximum character limit (approx. ${fileContent.byteLength} bytes vs ${maxCharacters} allowed)`);
-            }
-            
-            // For base64, we cannot extract lines meaningfully, so we ignore startLine and endLine
-            if (startLine >= 0 || endLine >= 0) {
-                console.warn(`[readWorkspaceFile] Line numbers specified for base64 encoding, ignoring`);
-            }
-            
-            return Buffer.from(fileContent).toString('base64');
-        } else {
-            // Regular text encoding (utf-8, latin1, etc.)
-            const textDecoder = new TextDecoder(encoding);
-            const textContent = textDecoder.decode(fileContent);
-            
-            // Check if the character count exceeds the limit
-            if (textContent.length > maxCharacters) {
-                throw new Error(`File content exceeds the maximum character limit (${textContent.length} vs ${maxCharacters} allowed)`);
-            }
-            
-            // If line numbers are specified and valid, extract just those lines
-            if (startLine >= 0 || endLine >= 0) {
-                // Split the content into lines
-                const lines = textContent.split('\n');
-                
-                // Set effective start and end lines
-                const effectiveStartLine = startLine >= 0 ? startLine : 0;
-                const effectiveEndLine = endLine >= 0 ? Math.min(endLine, lines.length - 1) : lines.length - 1;
-                
-                // Validate line numbers
-                if (effectiveStartLine >= lines.length) {
-                    throw new Error(`Start line ${effectiveStartLine + 1} is out of range (1-${lines.length})`);
-                }
-                
-                // Make sure endLine is not less than startLine
-                if (effectiveEndLine < effectiveStartLine) {
-                    throw new Error(`End line ${effectiveEndLine + 1} is less than start line ${effectiveStartLine + 1}`);
-                }
-                
-                // Extract the requested lines and join them back together
-                const partialContent = lines.slice(effectiveStartLine, effectiveEndLine + 1).join('\n');
-                console.log(`[readWorkspaceFile] Returning lines ${effectiveStartLine + 1}-${effectiveEndLine + 1}, length: ${partialContent.length} characters`);
-                return partialContent;
-            }
-            
-            return textContent;
-        }
-    } catch (error) {
-        console.error('[readWorkspaceFile] Error:', error);
-        throw error;
-    }
+  if (textContent.length > maxCharacters) {
+    throw new Error(`File content exceeds ${maxCharacters} characters`);
+  }
+
+  if (startLine >= 0 || endLine >= 0) {
+    const lines = textContent.split("\n");
+    const s = startLine >= 0 ? startLine : 0;
+    const e = endLine >= 0 ? Math.min(endLine, lines.length - 1) : lines.length - 1;
+    return lines.slice(s, e + 1).join("\n");
+  }
+
+  return textContent;
 }
 
 /**
- * Registers MCP file-related tools with the server
- * @param server MCP server instance
- * @param fileListingCallback Callback function for file listing operations
+ * Recursively find files by name across the entire filesystem (starting from common locations)
  */
-export function registerFileTools(
-    server: McpServer, 
-    fileListingCallback: FileListingCallback
-): void {
-    // Add list_files tool
-    server.tool(
-        'list_files_code',
-        `Explores directory structure in VS Code workspace.
+async function findFilesInFileSystem(targetName: string): Promise<string[]> {
+  const found: string[] = [];
+  
+  // Common search locations
+  const searchPaths = [
+    process.cwd(),
+    path.join(process.cwd(), '..'),
+    path.join(process.cwd(), '../..'),
+  ];
 
-        WHEN TO USE: Understanding project structure, finding files before read/modify operations.
-        
-        CRITICAL: NEVER set recursive=true on root directory (.) - output too large. Use recursive only on specific subdirectories.
-        
-        Returns files and directories at specified path. Start with path='.' to explore root, then dive into specific subdirectories with recursive=true.`,
-        {
-            path: z.string().describe('The path to list files from'),
-            recursive: z.boolean().optional().default(false).describe('Whether to list files recursively')
-        },
-        async ({ path, recursive = false }): Promise<CallToolResult> => {
-            console.log(`[list_files] Tool called with path=${path}, recursive=${recursive}`);
-            
-            if (!fileListingCallback) {
-                console.error('[list_files] File listing callback not set');
-                throw new Error('File listing callback not set');
-            }
+  // Add user home directory and desktop if available
+  if (process.env.HOME) {
+    searchPaths.push(process.env.HOME);
+    searchPaths.push(path.join(process.env.HOME, 'Desktop'));
+    searchPaths.push(path.join(process.env.HOME, 'Documents'));
+  }
+  if (process.env.USERPROFILE) {
+    searchPaths.push(process.env.USERPROFILE);
+    searchPaths.push(path.join(process.env.USERPROFILE, 'Desktop'));
+    searchPaths.push(path.join(process.env.USERPROFILE, 'Documents'));
+  }
 
-            try {
-                console.log('[list_files] Calling file listing callback');
-                const files = await fileListingCallback(path, recursive);
-                console.log(`[list_files] Callback returned ${files.length} items`);
-                
-                const result: CallToolResult = {
-                    content: [
-                        {
-                            type: 'text',
-                            text: JSON.stringify(files, null, 2)
-                        }
-                    ]
-                };
-                console.log('[list_files] Successfully completed');
-                return result;
-            } catch (error) {
-                console.error('[list_files] Error in tool:', error);
-                throw error;
-            }
+  async function walkDirectory(dirPath: string, depth: number = 0): Promise<void> {
+    // Limit search depth to avoid infinite recursion
+    if (depth > 3) return;
+    
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        
+        if (entry.isFile() && (entry.name === targetName || entry.name.includes(targetName))) {
+          found.push(fullPath);
+        } else if (entry.isDirectory() && !DEFAULT_IGNORED_DIRS.has(entry.name)) {
+          await walkDirectory(fullPath, depth + 1);
         }
-    );
+      }
+    } catch (error) {
+      // Silently ignore permission errors and continue
+    }
+  }
 
-    // Update read_file tool with line number parameters
-    server.tool(
-        'read_file_code',
-        `Retrieves file contents with size limits and partial reading support.
+  // Search in parallel across different root paths
+  await Promise.all(
+    searchPaths.map(async (searchPath) => {
+      if (fs.existsSync(searchPath)) {
+        await walkDirectory(searchPath);
+      }
+    })
+  );
 
-        WHEN TO USE: Reading code, config files, analyzing implementations. Files >100k chars will fail.
-        
-        Encoding: Text encodings (utf-8, latin1, etc.) for text files, 'base64' for base64-encoded string.
-        Line numbers: Use startLine/endLine (1-based) for large files to read specific sections only.
-        
-        If file too large: Use startLine/endLine to read relevant sections only.`,
-        {
-            path: z.string().describe('The path to the file to read'),
-            encoding: z.string().optional().default('utf-8').describe('Encoding to convert the file content to a string. Use "base64" for base64-encoded string'),
-            maxCharacters: z.number().optional().default(DEFAULT_MAX_CHARACTERS).describe('Maximum character count (default: 100,000)'),
-            startLine: z.number().optional().default(-1).describe('The start line number (1-based, inclusive). Default: read from beginning, denoted by -1'),
-            endLine: z.number().optional().default(-1).describe('The end line number (1-based, inclusive). Default: read to end, denoted by -1')
-        },
-        async ({ path, encoding = 'utf-8', maxCharacters = DEFAULT_MAX_CHARACTERS, startLine = -1, endLine = -1 }): Promise<CallToolResult> => {
-            console.log(`[read_file] Tool called with path=${path}, encoding=${encoding}, maxCharacters=${maxCharacters}, startLine=${startLine}, endLine=${endLine}`);
-            
-            // Convert 1-based input to 0-based for VS Code API
-            const zeroBasedStartLine = startLine > 0 ? startLine - 1 : startLine;
-            const zeroBasedEndLine = endLine > 0 ? endLine - 1 : endLine;
-            
-            try {
-                console.log('[read_file] Reading file');
-                const content = await readWorkspaceFile(path, encoding, maxCharacters, zeroBasedStartLine, zeroBasedEndLine);
-                
-                const result: CallToolResult = {
-                    content: [
-                        {
-                            type: 'text',
-                            text: content
-                        }
-                    ]
-                };
-                console.log(`[read_file] File read successfully, length: ${content.length} characters`);
-                return result;
-            } catch (error) {
-                console.error('[read_file] Error in tool:', error);
-                throw error;
-            }
+  // Remove duplicates and sort
+  return [...new Set(found)].sort();
+}
+
+/**
+ * Recursively find files by name
+ */
+export async function findFilesRecursively(
+  startPath: string,
+  targetName: string,
+  ignored: Set<string> = DEFAULT_IGNORED_DIRS
+): Promise<string[]> {
+  // First try to search within workspace if available
+  let found: string[] = [];
+  
+  try {
+    const root = workspaceRootUri();
+    const startUri = vscode.Uri.joinPath(root, startPath);
+
+    async function walk(dirUri: vscode.Uri, relPrefix = ""): Promise<void> {
+      let entries: [string, vscode.FileType][];
+      try {
+        entries = await vscode.workspace.fs.readDirectory(dirUri);
+      } catch {
+        return;
+      }
+
+      for (const [name, type] of entries) {
+        if (ignored.has(name)) continue;
+        const entryRel = relPrefix ? path.join(relPrefix, name) : name;
+        const entryUri = vscode.Uri.joinPath(dirUri, name);
+
+        if (type & vscode.FileType.Directory) {
+          await walk(entryUri, entryRel);
+        } else if (name === targetName || entryRel.includes(targetName)) {
+          found.push(entryRel);
         }
-    );
+      }
+    }
+
+    await walk(startUri, startPath === "." ? "" : startPath);
+  } catch (error) {
+    logger.info(`Workspace search failed: ${error}. Falling back to filesystem search.`);
+  }
+
+  // If no files found in workspace, search the filesystem
+  if (found.length === 0) {
+    logger.info(`No files found in workspace, searching filesystem for: ${targetName}`);
+    found = await findFilesInFileSystem(targetName);
+  }
+
+  return found;
+}
+
+/**
+ * Register MCP file tools
+ */
+export function registerFileTools(server: McpServer): void {
+  // list files
+  server.tool(
+    "list_files_code",
+    "Lists files in workspace",
+    { path: z.string(), recursive: z.boolean().optional().default(false) },
+    async ({ path: workspacePath, recursive = false }) => {
+      try {
+        // Ensure workspace is ready
+        const isReady = await waitForWorkspace();
+        if (!isReady) {
+          throw new Error("Workspace not initialized");
+        }
+        
+        const files = await listWorkspaceFiles(workspacePath, recursive);
+        return { content: [{ type: "text", text: JSON.stringify(files, null, 2) }] };
+      } catch (error) {
+        logger.error(`Error listing files: ${error}`);
+        throw error;
+      }
+    }
+  );
+
+  // read file
+  server.tool(
+    "read_file_code",
+    "Reads file content",
+    { 
+      path: z.string(), 
+      encoding: z.string().optional().default("utf-8"), 
+      maxCharacters: z.number().optional().default(DEFAULT_MAX_CHARACTERS) 
+    },
+    async ({ path: p, encoding, maxCharacters }) => {
+      try {
+        // Ensure workspace is ready
+        const isReady = await waitForWorkspace();
+        if (!isReady) {
+          throw new Error("Workspace not initialized");
+        }
+        
+        const content = await readWorkspaceFile(p, encoding, maxCharacters);
+        return { content: [{ type: "text", text: content }] };
+      } catch (error) {
+        logger.error(`Error reading file ${p}: ${error}`);
+        throw error;
+      }
+    }
+  );
+
+  // find file - Updated to handle your workflow
+  server.tool(
+    "find_file_code",
+    "Search for files recursively and open workspace",
+    { 
+      startPath: z.string().optional().default("."), 
+      targetName: z.string().describe("The filename to search for (e.g., '1543.cpp')"),
+      openWorkspace: z.boolean().optional().default(true).describe("Whether to automatically open workspace")
+    },
+    async ({ startPath = ".", targetName, openWorkspace = true }) => {
+      try {
+        logger.info(`Searching for file: ${targetName}`);
+        const matches = await findFilesRecursively(startPath, targetName);
+        
+        if (matches.length === 0) {
+          logger.info(`File ${targetName} not found. Opening default workspace.`);
+          if (openWorkspace) {
+            await openWorkspaceForFile(process.cwd());
+          }
+          return { 
+            content: [{ 
+              type: "text", 
+              text: JSON.stringify({ 
+                matches: [], 
+                message: `File '${targetName}' not found. Opened default workspace at: ${process.cwd()}`,
+                workspaceOpened: process.cwd()
+              }, null, 2) 
+            }] 
+          };
+        } else if (matches.length === 1) {
+          logger.info(`File found: ${matches[0]}`);
+          if (openWorkspace) {
+            await openWorkspaceForFile(matches[0]);
+          }
+          return { 
+            content: [{ 
+              type: "text", 
+              text: JSON.stringify({ 
+                matches: matches, 
+                selectedFile: matches[0],
+                message: `Found single file: ${matches[0]}. Workspace opened.`,
+                workspaceOpened: path.dirname(matches[0])
+              }, null, 2) 
+            }] 
+          };
+        } else {
+          logger.info(`Multiple matches found for ${targetName}: ${matches.join(", ")}`);
+          return { 
+            content: [{ 
+              type: "text", 
+              text: JSON.stringify({ 
+                matches: matches,
+                message: `Multiple files found with name '${targetName}'. Please select one:`,
+                instruction: "Use 'open_workspace_for_file' tool with the specific path you want to work with."
+              }, null, 2) 
+            }] 
+          };
+        }
+      } catch (error) {
+        logger.error(`Error finding file ${targetName}: ${error}`);
+        throw error;
+      }
+    }
+  );
+
+  // New tool to open workspace for a specific file path
+  server.tool(
+    "open_workspace_for_file",
+    "Opens VS Code workspace for a specific file path",
+    {
+      filePath: z.string().describe("Full path to the file or directory to open workspace for")
+    },
+    async ({ filePath }) => {
+      try {
+        logger.info(`Opening workspace for file: ${filePath}`);
+        await openWorkspaceForFile(filePath);
+        const workspaceDir = fs.existsSync(filePath) && fs.statSync(filePath).isFile() 
+          ? path.dirname(filePath) 
+          : filePath;
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: `Workspace opened successfully`,
+              workspacePath: workspaceDir,
+              targetFile: filePath
+            }, null, 2)
+          }]
+        };
+      } catch (error) {
+        logger.error(`Error opening workspace for ${filePath}: ${error}`);
+        throw error;
+      }
+    }
+  );
 }

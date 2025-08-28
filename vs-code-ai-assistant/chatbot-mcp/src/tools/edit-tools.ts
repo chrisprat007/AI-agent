@@ -4,238 +4,239 @@ import { z } from 'zod';
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 /**
- * Creates a new file in the VS Code workspace using WorkspaceEdit
- * @param workspacePath The path within the workspace to the file
- * @param content The content to write to the file
- * @param overwrite Whether to overwrite if the file exists
- * @param ignoreIfExists Whether to ignore if the file exists
- * @returns Promise that resolves when the edit operation completes
+ * Create a new file in the workspace and open it in the editor (non-preview).
+ * @param workspacePath path relative to workspace root
+ * @param content file content
+ * @param overwrite whether to overwrite existing file
+ * @param ignoreIfExists whether to ignore if file exists
  */
 export async function createWorkspaceFile(
-    workspacePath: string,
-    content: string,
-    overwrite: boolean = false,
-    ignoreIfExists: boolean = false
+  workspacePath: string,
+  content: string,
+  overwrite: boolean = false,
+  ignoreIfExists: boolean = false
 ): Promise<void> {
-    console.log(`[createWorkspaceFile] Starting with path: ${workspacePath}, overwrite: ${overwrite}, ignoreIfExists: ${ignoreIfExists}`);
-    
-    if (!vscode.workspace.workspaceFolders) {
-        throw new Error('No workspace folder is open');
-    }
+  if (!vscode.workspace.workspaceFolders) {
+    throw new Error('No workspace folder is open');
+  }
+  const workspaceFolder = vscode.workspace.workspaceFolders[0];
+  const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, workspacePath);
 
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    const workspaceUri = workspaceFolder.uri;
-    
-    // Create URI for the target file
-    const fileUri = vscode.Uri.joinPath(workspaceUri, workspacePath);
-    console.log(`[createWorkspaceFile] File URI: ${fileUri.fsPath}`);
+  const workspaceEdit = new vscode.WorkspaceEdit();
+  const contentBuffer = new TextEncoder().encode(content);
+  workspaceEdit.createFile(fileUri, { contents: contentBuffer, overwrite, ignoreIfExists });
 
-    try {
-        // Create a WorkspaceEdit
-        const workspaceEdit = new vscode.WorkspaceEdit();
-        
-        // Convert content to Uint8Array
-        const contentBuffer = new TextEncoder().encode(content);
-        
-        // Add createFile operation to the edit
-        workspaceEdit.createFile(fileUri, {
-            contents: contentBuffer,
-            overwrite: overwrite,
-            ignoreIfExists: ignoreIfExists
-        });
-        
-        // Apply the edit
-        const success = await vscode.workspace.applyEdit(workspaceEdit);
-        
-        if (success) {
-            console.log(`[createWorkspaceFile] File created successfully: ${fileUri.fsPath}`);
-            
-            // Open the document to trigger linting
-            const document = await vscode.workspace.openTextDocument(fileUri);
-            await vscode.window.showTextDocument(document);
-            console.log(`[createWorkspaceFile] File opened in editor`);
-        } else {
-            throw new Error(`Failed to create file: ${fileUri.fsPath}`);
-        }
-    } catch (error) {
-        console.error('[createWorkspaceFile] Error:', error);
-        throw error;
-    }
+  const success = await vscode.workspace.applyEdit(workspaceEdit);
+  if (!success) {
+    throw new Error(`Failed to create file: ${fileUri.fsPath}`);
+  }
+
+  const document = await vscode.workspace.openTextDocument(fileUri);
+  await vscode.window.showTextDocument(document, { preview: false });
 }
 
 /**
- * Replaces specific lines in a file in the VS Code workspace
- * @param workspacePath The path within the workspace to the file
- * @param startLine The start line number (0-based, inclusive)
- * @param endLine The end line number (0-based, inclusive)
- * @param content The new content to replace the lines with
- * @param originalCode The original code for validation
- * @returns Promise that resolves when the edit operation completes
+ * Replace specific lines in a file after validating original content.
+ * startLine and endLine are 0-based in this function. (MCP tool exposes 1-based.)
+ * @param workspacePath relative path to file
+ * @param startLine 0-based inclusive
+ * @param endLine 0-based inclusive
+ * @param content replacement content
+ * @param originalCode the exact current content of the region to validate
  */
 export async function replaceWorkspaceFileLines(
-    workspacePath: string,
-    startLine: number,
-    endLine: number,
-    content: string,
-    originalCode: string
+  workspacePath: string,
+  startLine: number,
+  endLine: number,
+  content: string,
+  originalCode: string
 ): Promise<void> {
-    console.log(`[replaceWorkspaceFileLines] Starting with path: ${workspacePath}, lines: ${startLine}-${endLine}`);
-    
-    if (!vscode.workspace.workspaceFolders) {
-        throw new Error('No workspace folder is open');
-    }
+  if (!vscode.workspace.workspaceFolders) {
+    throw new Error('No workspace folder is open');
+  }
+  const workspaceFolder = vscode.workspace.workspaceFolders[0];
+  const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, workspacePath);
 
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    const workspaceUri = workspaceFolder.uri;
-    
-    // Create URI for the target file
-    const fileUri = vscode.Uri.joinPath(workspaceUri, workspacePath);
-    console.log(`[replaceWorkspaceFileLines] File URI: ${fileUri.fsPath}`);
+  const document = await vscode.workspace.openTextDocument(fileUri);
 
-    try {
-        // Open the document (or get it if already open)
-        const document = await vscode.workspace.openTextDocument(fileUri);
-        
-        // Validate line numbers
-        if (startLine < 0 || startLine >= document.lineCount) {
-            throw new Error(`Start line ${startLine + 1} is out of range (1-${document.lineCount})`);
-        }
-        if (endLine < startLine || endLine >= document.lineCount) {
-            throw new Error(`End line ${endLine + 1} is out of range (${startLine + 1}-${document.lineCount})`);
-        }
-        
-        // Get the current content of the lines
-        const currentLines = [];
-        for (let i = startLine; i <= endLine; i++) {
-            currentLines.push(document.lineAt(i).text);
-        }
-        const currentContent = currentLines.join('\n');
-        
-        // Compare with the provided original code
-        if (currentContent !== originalCode) {
-            throw new Error(`Original code validation failed. The current content does not match the provided original code.`);
-        }
-        
-        // Create a range for the lines to replace
-        const startPos = new vscode.Position(startLine, 0);
-        const endPos = new vscode.Position(endLine, document.lineAt(endLine).text.length);
-        const range = new vscode.Range(startPos, endPos);
-        
-        // Get the active text editor or show the document
-        let editor = vscode.window.activeTextEditor;
-        if (!editor || editor.document.uri.toString() !== fileUri.toString()) {
-            editor = await vscode.window.showTextDocument(document);
-        }
-        
-        // Apply the edit
-        const success = await editor.edit((editBuilder) => {
-            editBuilder.replace(range, content);
-        });
-        
-        if (success) {
-            console.log(`[replaceWorkspaceFileLines] Lines replaced successfully`);
-            
-            // Save the document to persist changes
-            await document.save();
-            console.log(`[replaceWorkspaceFileLines] Document saved`);
-        } else {
-            throw new Error(`Failed to replace lines in file: ${fileUri.fsPath}`);
-        }
-    } catch (error) {
-        console.error('[replaceWorkspaceFileLines] Error:', error);
-        throw error;
-    }
+  if (startLine < 0 || startLine >= document.lineCount) {
+    throw new Error(`Start line ${startLine + 1} is out of range (1-${document.lineCount})`);
+  }
+  if (endLine < startLine || endLine >= document.lineCount) {
+    throw new Error(`End line ${endLine + 1} is out of range (${startLine + 1}-${document.lineCount})`);
+  }
+
+  // Gather current lines for exact match validation
+  const currentLines: string[] = [];
+  for (let i = startLine; i <= endLine; i++) {
+    currentLines.push(document.lineAt(i).text);
+  }
+  const currentContent = currentLines.join('\n');
+  if (currentContent !== originalCode) {
+    throw new Error('Original code validation failed. The current content does not match the provided original code.');
+  }
+
+  // Ensure the file is open in the editor
+  const editor = await vscode.window.showTextDocument(document, { preview: false });
+
+  const startPos = new vscode.Position(startLine, 0);
+  const endPos = new vscode.Position(endLine, document.lineAt(endLine).text.length);
+  const range = new vscode.Range(startPos, endPos);
+
+  const applied = await editor.edit(editBuilder => {
+    editBuilder.replace(range, content);
+  });
+
+  if (!applied) {
+    throw new Error(`Failed to replace lines in file: ${fileUri.fsPath}`);
+  }
+
+  await document.save();
 }
 
 /**
- * Registers MCP edit-related tools with the server
- * @param server MCP server instance
+ * Type text character-by-character into an open editor at a specified speed.
+ * insertAtLine and insertAtColumn are 0-based. If null, types at end of file.
+ * Saves the document after typing finishes.
+ */
+export async function typeIntoWorkspaceFile(
+  workspacePath: string,
+  content: string,
+  speedMsPerChar: number = 50,
+  insertAtLine: number | null = null,
+  insertAtColumn: number | null = null
+): Promise<void> {
+  if (!vscode.workspace.workspaceFolders) {
+    throw new Error('No workspace folder is open');
+  }
+  const workspaceFolder = vscode.workspace.workspaceFolders[0];
+  const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, workspacePath);
+
+  const document = await vscode.workspace.openTextDocument(fileUri);
+  const editor = await vscode.window.showTextDocument(document, { preview: false });
+
+  // Determine starting position
+  let position: vscode.Position;
+  if (insertAtLine !== null && insertAtColumn !== null) {
+    // Clamp to valid range
+    const line = Math.max(0, Math.min(insertAtLine, document.lineCount - 1));
+    const col = Math.max(0, Math.min(insertAtColumn, document.lineAt(line).text.length));
+    position = new vscode.Position(line, col);
+  } else {
+    const lastLine = document.lineCount - 1;
+    position = new vscode.Position(lastLine, document.lineAt(lastLine).text.length);
+  }
+
+  // Insert characters one by one
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    const ok = await editor.edit(editBuilder => {
+      editBuilder.insert(position, ch);
+    });
+    if (!ok) {
+      throw new Error('Failed to insert character');
+    }
+
+    // Update position
+    if (ch === '\n') {
+      position = new vscode.Position(position.line + 1, 0);
+    } else {
+      position = new vscode.Position(position.line, position.character + 1);
+    }
+
+    // Delay between characters
+    await new Promise(resolve => setTimeout(resolve, speedMsPerChar));
+  }
+
+  await document.save();
+}
+
+/**
+ * Registers MCP edit-related tools on the provided McpServer.
+ * Tools:
+ *  - create_file_code
+ *  - replace_lines_code (MCP-facing API accepts 1-based line numbers)
+ *  - type_into_file_code (MCP-facing API accepts 1-based insertAtLine)
  */
 export function registerEditTools(server: McpServer): void {
-    // Add create_file tool
-    server.tool(
-        'create_file_code',
-        `Creates new files or completely rewrites existing files.
+  // create_file_code
+  server.tool(
+    'create_file_code',
+    `Creates new files or completely rewrites existing files. Opens the file in editor when done.`,
+    {
+      path: z.string().describe('The path to the file to create'),
+      content: z.string().describe('The content to write to the file'),
+      overwrite: z.boolean().optional().default(false).describe('Whether to overwrite if the file exists'),
+      ignoreIfExists: z.boolean().optional().default(false).describe('Whether to ignore if the file exists')
+    },
+    async ({ path, content, overwrite = false, ignoreIfExists = false }): Promise<CallToolResult> => {
+      try {
+        await createWorkspaceFile(path, content, overwrite, ignoreIfExists);
+        return {
+          content: [
+            { type: 'text', text: `File ${path} created and opened in editor` }
+          ]
+        };
+      } catch (error) {
+        console.error('[create_file] Error:', error);
+        throw error;
+      }
+    }
+  );
 
-        WHEN TO USE: New files, large modifications (>10 lines), complete file rewrites.
-        USE replace_lines_code instead for: small edits ≤10 lines where you have exact original content.
+  // replace_lines_code — MCP boundary uses 1-based line numbers
+  server.tool(
+    'replace_lines_code',
+    `Replaces specific lines in existing files with exact content validation. Use 1-based startLine/endLine values. Opens file before editing.`,
+    {
+      path: z.string().describe('The path to the file to modify'),
+      startLine: z.number().describe('The start line number (1-based, inclusive)'),
+      endLine: z.number().describe('The end line number (1-based, inclusive)'),
+      content: z.string().describe('The new content to replace the lines with'),
+      originalCode: z.string().describe('The original code for validation - must match exactly')
+    },
+    async ({ path, startLine, endLine, content, originalCode }): Promise<CallToolResult> => {
+      try {
+        const zeroStart = startLine > 0 ? startLine - 1 : startLine;
+        const zeroEnd = endLine > 0 ? endLine - 1 : endLine;
+        await replaceWorkspaceFileLines(path, zeroStart, zeroEnd, content, originalCode);
+        return {
+          content: [
+            { type: 'text', text: `Lines ${startLine}-${endLine} in file ${path} replaced and file opened in editor` }
+          ]
+        };
+      } catch (error) {
+        console.error('[replace_lines_code] Error:', error);
+        throw error;
+      }
+    }
+  );
 
-        File handling: Use overwrite=true to replace existing files, ignoreIfExists=true to skip if file exists.
-        Always check with list_files_code first unless you specifically want to overwrite.`,
-        {
-            path: z.string().describe('The path to the file to create'),
-            content: z.string().describe('The content to write to the file'),
-            overwrite: z.boolean().optional().default(false).describe('Whether to overwrite if the file exists'),
-            ignoreIfExists: z.boolean().optional().default(false).describe('Whether to ignore if the file exists')
-        },
-        async ({ path, content, overwrite = false, ignoreIfExists = false }): Promise<CallToolResult> => {
-            console.log(`[create_file] Tool called with path=${path}, overwrite=${overwrite}, ignoreIfExists=${ignoreIfExists}`);
-            
-            try {
-                console.log('[create_file] Creating file');
-                await createWorkspaceFile(path, content, overwrite, ignoreIfExists);
-                
-                const result: CallToolResult = {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `File ${path} created successfully`
-                        }
-                    ]
-                };
-                console.log('[create_file] Successfully completed');
-                return result;
-            } catch (error) {
-                console.error('[create_file] Error in tool:', error);
-                throw error;
-            }
-        }
-    );
-
-    // Add replace_lines_code tool
-    server.tool(
-        'replace_lines_code',
-        `Replaces specific lines in existing files with exact content validation.
-
-        WHEN TO USE: Modifications ≤10 lines where you have exact original text, or inserts of any size.
-        USE create_file_code instead for: new files, large modifications (>10 lines, hard to match exact content), or when original text is uncertain.
-
-        CRITICAL: originalCode parameter must match current file content exactly or tool fails.
-        If tool fails: run read_file_code on target lines to get current content, then retry.
-
-        Parameters use 1-based line numbers. Always verify line numbers with read_file_code if unsure.`,
-        {
-            path: z.string().describe('The path to the file to modify'),
-            startLine: z.number().describe('The start line number (1-based, inclusive)'),
-            endLine: z.number().describe('The end line number (1-based, inclusive)'),
-            content: z.string().describe('The new content to replace the lines with'),
-            originalCode: z.string().describe('The original code for validation - must match exactly')
-        },
-        async ({ path, startLine, endLine, content, originalCode }): Promise<CallToolResult> => {
-            console.log(`[replace_lines_code] Tool called with path=${path}, startLine=${startLine}, endLine=${endLine}`);
-            
-            // Convert 1-based input to 0-based for VS Code API
-            const zeroBasedStartLine = startLine - 1;
-            const zeroBasedEndLine = endLine - 1;
-            
-            try {
-                console.log('[replace_lines_code] Replacing lines');
-                await replaceWorkspaceFileLines(path, zeroBasedStartLine, zeroBasedEndLine, content, originalCode);
-                
-                const result: CallToolResult = {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Lines ${startLine}-${endLine} in file ${path} replaced successfully`
-                        }
-                    ]
-                };
-                console.log('[replace_lines_code] Successfully completed');
-                return result;
-            } catch (error) {
-                console.error('[replace_lines_code] Error in tool:', error);
-                throw error;
-            }
-        }
-    );
+  // type_into_file_code — MCP accepts 1-based insertAtLine for convenience
+  server.tool(
+    'type_into_file_code',
+    `Types text into the given file character-by-character at specified speed (ms per character). The file will be opened and saved when finished.`,
+    {
+      path: z.string().describe('The path to the file to type into'),
+      content: z.string().describe('The text to type into the file'),
+      speedMsPerChar: z.number().optional().default(50).describe('Milliseconds delay between each character'),
+      insertAtLine: z.number().optional().default(-1).describe('1-based line number to insert at (default = end of file)'),
+      insertAtColumn: z.number().optional().default(-1).describe('0-based column to insert at (default = end of line)')
+    },
+    async ({ path, content, speedMsPerChar = 50, insertAtLine = -1, insertAtColumn = -1 }): Promise<CallToolResult> => {
+      try {
+        const line = insertAtLine > 0 ? insertAtLine - 1 : null;
+        const col = insertAtColumn >= 0 ? insertAtColumn : null;
+        await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col);
+        return {
+          content: [
+            { type: 'text', text: `Typed into ${path} at ${speedMsPerChar}ms/char and saved.` }
+          ]
+        };
+      } catch (error) {
+        console.error('[type_into_file_code] Error:', error);
+        throw error;
+      }
+    }
+  );
 }
