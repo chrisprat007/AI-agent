@@ -4,6 +4,15 @@ import { z } from 'zod';
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as path from 'path';
 
+async function focusWorkspaceWindow() {
+  try {
+    console.log("Focusing workspace window");
+    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+    console.log("Workspace window focused");
+  } catch (err) {
+    console.warn("Failed to focus workspace window:", err);
+  }
+}
 /**
  * Get diagnostics for the entire workspace or a specific file
  * @param filePath Optional file path to check
@@ -185,7 +194,7 @@ export function registerDiagnosticsTools(server: McpServer): void {
                 
                 console.log(`[get_diagnostics] Found diagnostics for ${diagnostics.length} files`);
                 const formattedResult = formatDiagnostics(diagnostics, severities, format, includeSource);
-                
+                await focusWorkspaceWindow();
                 const result: CallToolResult = {
                     content: [
                         {

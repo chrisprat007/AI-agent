@@ -62,7 +62,7 @@ function workspaceRootUri(): vscode.Uri {
  */
 async function waitForWorkspace(timeoutMs: number = 5000): Promise<boolean> {
   const startTime = Date.now();
-  
+
   while (Date.now() - startTime < timeoutMs) {
     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
       logger.info(`Workspace is ready: ${vscode.workspace.workspaceFolders[0].uri.fsPath}`);
@@ -70,7 +70,7 @@ async function waitForWorkspace(timeoutMs: number = 5000): Promise<boolean> {
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  
+
   return false;
 }
 
@@ -79,7 +79,7 @@ async function waitForWorkspace(timeoutMs: number = 5000): Promise<boolean> {
  */
 async function openWorkspaceForFile(filePath: string): Promise<void> {
   let folder: string;
-  
+
   try {
     if (fs.existsSync(filePath)) {
       const stats = fs.statSync(filePath);
@@ -111,17 +111,19 @@ async function openWorkspaceForFile(filePath: string): Promise<void> {
 
   const uri = vscode.Uri.file(folder);
   logger.info(`Opening workspace at: ${folder}`);
-  
+
   // Open folder as workspace (false = replace current workspace)
   await vscode.commands.executeCommand("vscode.openFolder", uri, false);
-  
+
   // Wait for workspace to be ready
   const isReady = await waitForWorkspace();
   if (!isReady) {
     throw new Error(`Workspace failed to initialize within timeout at ${folder}`);
   }
-  
+
   logger.info(`Workspace successfully opened at: ${folder}`);
+  await focusWorkspaceWindow();
+
 }
 
 /**
@@ -177,7 +179,7 @@ export async function readWorkspaceFile(
   const fileUri = vscode.Uri.joinPath(root, workspacePath);
 
   const fileContent = await vscode.workspace.fs.readFile(fileUri);
-  const textContent = encoding === "base64" 
+  const textContent = encoding === "base64"
     ? Buffer.from(fileContent).toString("base64")
     : new TextDecoder(encoding).decode(fileContent);
 
@@ -200,7 +202,7 @@ export async function readWorkspaceFile(
  */
 async function findFilesInFileSystem(targetName: string): Promise<string[]> {
   const found: string[] = [];
-  
+
   // Common search locations
   const searchPaths = [
     process.cwd(),
@@ -223,13 +225,13 @@ async function findFilesInFileSystem(targetName: string): Promise<string[]> {
   async function walkDirectory(dirPath: string, depth: number = 0): Promise<void> {
     // Limit search depth to avoid infinite recursion
     if (depth > 3) return;
-    
+
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-      
+
       for (const entry of entries) {
         const fullPath = path.join(dirPath, entry.name);
-        
+
         if (entry.isFile() && (entry.name === targetName || entry.name.includes(targetName))) {
           found.push(fullPath);
         } else if (entry.isDirectory() && !DEFAULT_IGNORED_DIRS.has(entry.name)) {
@@ -264,7 +266,7 @@ export async function findFilesRecursively(
 ): Promise<string[]> {
   // First try to search within workspace if available
   let found: string[] = [];
-  
+
   try {
     const root = workspaceRootUri();
     const startUri = vscode.Uri.joinPath(root, startPath);
@@ -320,8 +322,9 @@ export function registerFileTools(server: McpServer): void {
         if (!isReady) {
           throw new Error("Workspace not initialized");
         }
-        
+
         const files = await listWorkspaceFiles(workspacePath, recursive);
+        await focusWorkspaceWindow();
         return { content: [{ type: "text", text: JSON.stringify(files, null, 2) }] };
       } catch (error) {
         logger.error(`Error listing files: ${error}`);
@@ -334,10 +337,10 @@ export function registerFileTools(server: McpServer): void {
   server.tool(
     "read_file_code",
     "Reads file content",
-    { 
-      path: z.string(), 
-      encoding: z.string().optional().default("utf-8"), 
-      maxCharacters: z.number().optional().default(DEFAULT_MAX_CHARACTERS) 
+    {
+      path: z.string(),
+      encoding: z.string().optional().default("utf-8"),
+      maxCharacters: z.number().optional().default(DEFAULT_MAX_CHARACTERS)
     },
     async ({ path: p, encoding, maxCharacters }) => {
       try {
@@ -346,8 +349,9 @@ export function registerFileTools(server: McpServer): void {
         if (!isReady) {
           throw new Error("Workspace not initialized");
         }
-        
+
         const content = await readWorkspaceFile(p, encoding, maxCharacters);
+        await focusWorkspaceWindow();
         return { content: [{ type: "text", text: content }] };
       } catch (error) {
         logger.error(`Error reading file ${p}: ${error}`);
@@ -360,8 +364,8 @@ export function registerFileTools(server: McpServer): void {
   server.tool(
     "find_file_code",
     "Search for files recursively and open workspace",
-    { 
-      startPath: z.string().optional().default("."), 
+    {
+      startPath: z.string().optional().default("."),
       targetName: z.string().describe("The filename to search for (e.g., '1543.cpp')"),
       openWorkspace: z.boolean().optional().default(true).describe("Whether to automatically open workspace")
     },
@@ -369,49 +373,50 @@ export function registerFileTools(server: McpServer): void {
       try {
         logger.info(`Searching for file: ${targetName}`);
         const matches = await findFilesRecursively(startPath, targetName);
-        
+
         if (matches.length === 0) {
           logger.info(`File ${targetName} not found. Opening default workspace.`);
           if (openWorkspace) {
             await openWorkspaceForFile(process.cwd());
           }
-          return { 
-            content: [{ 
-              type: "text", 
-              text: JSON.stringify({ 
-                matches: [], 
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                matches: [],
                 message: `File '${targetName}' not found. Opened default workspace at: ${process.cwd()}`,
                 workspaceOpened: process.cwd()
-              }, null, 2) 
-            }] 
+              }, null, 2)
+            }]
           };
         } else if (matches.length === 1) {
           logger.info(`File found: ${matches[0]}`);
           if (openWorkspace) {
             await openWorkspaceForFile(matches[0]);
           }
-          return { 
-            content: [{ 
-              type: "text", 
-              text: JSON.stringify({ 
-                matches: matches, 
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                matches: matches,
                 selectedFile: matches[0],
                 message: `Found single file: ${matches[0]}. Workspace opened.`,
                 workspaceOpened: path.dirname(matches[0])
-              }, null, 2) 
-            }] 
+              }, null, 2)
+            }]
           };
         } else {
           logger.info(`Multiple matches found for ${targetName}: ${matches.join(", ")}`);
-          return { 
-            content: [{ 
-              type: "text", 
-              text: JSON.stringify({ 
+          await focusWorkspaceWindow();
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
                 matches: matches,
                 message: `Multiple files found with name '${targetName}'. Please select one:`,
                 instruction: "Use 'open_workspace_for_file' tool with the specific path you want to work with."
-              }, null, 2) 
-            }] 
+              }, null, 2)
+            }]
           };
         }
       } catch (error) {
@@ -432,10 +437,10 @@ export function registerFileTools(server: McpServer): void {
       try {
         logger.info(`Opening workspace for file: ${filePath}`);
         await openWorkspaceForFile(filePath);
-        const workspaceDir = fs.existsSync(filePath) && fs.statSync(filePath).isFile() 
-          ? path.dirname(filePath) 
+        const workspaceDir = fs.existsSync(filePath) && fs.statSync(filePath).isFile()
+          ? path.dirname(filePath)
           : filePath;
-        
+
         return {
           content: [{
             type: "text",
@@ -453,4 +458,11 @@ export function registerFileTools(server: McpServer): void {
       }
     }
   );
+}
+async function focusWorkspaceWindow() {
+  try {
+    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+  } catch (err) {
+    logger.warn(`Failed to focus workspace window: ${err}`);
+  }
 }

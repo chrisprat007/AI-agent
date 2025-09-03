@@ -439,6 +439,7 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
+                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
                 const callResult: CallToolResult = {
                     content: [
                         {
@@ -541,6 +542,7 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
+                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
                 const callResult: CallToolResult = {
                     content: [
                         {
@@ -625,6 +627,7 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
+                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
                 const callResult: CallToolResult = {
                     content: [
                         {
