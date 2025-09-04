@@ -34,7 +34,7 @@ export async function createWorkspaceFile(
 
   const document = await vscode.workspace.openTextDocument(fileUri);
   await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.Active });
-  await focusWorkspaceWindow();
+  // ...existing code...
 
 }
 
@@ -81,7 +81,6 @@ export async function replaceWorkspaceFileLines(
 
   // Ensure the file is open in the editor
   const editor = await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.Active });
-  await focusWorkspaceWindow();
 
   const startPos = new vscode.Position(startLine, 0);
   const endPos = new vscode.Position(endLine, document.lineAt(endLine).text.length);
@@ -118,7 +117,7 @@ export async function typeIntoWorkspaceFile(
 
   const document = await vscode.workspace.openTextDocument(fileUri);
   const editor = await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.Active });
-  await focusWorkspaceWindow();
+  await focusExtensionDevHost();
 
   // Determine starting position
   let position: vscode.Position;
@@ -176,7 +175,6 @@ export function registerEditTools(server: McpServer): void {
     },
     async ({ path, content, overwrite = false, ignoreIfExists = false }): Promise<CallToolResult> => {
       try {
-        await focusWorkspaceWindow();
         await createWorkspaceFile(path, content, overwrite, ignoreIfExists);
         
         return {
@@ -206,7 +204,6 @@ export function registerEditTools(server: McpServer): void {
       try {
         const zeroStart = startLine > 0 ? startLine - 1 : startLine;
         const zeroEnd = endLine > 0 ? endLine - 1 : endLine;
-        await focusWorkspaceWindow();
         await replaceWorkspaceFileLines(path, zeroStart, zeroEnd, content, originalCode);
         
         return {
@@ -236,7 +233,6 @@ export function registerEditTools(server: McpServer): void {
       try {
         const line = insertAtLine > 0 ? insertAtLine - 1 : null;
         const col = insertAtColumn >= 0 ? insertAtColumn : null;
-        await focusWorkspaceWindow();
         await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col);
         
         return {
@@ -251,22 +247,5 @@ export function registerEditTools(server: McpServer): void {
     }
   );
 }
-async function focusWorkspaceWindow() {
-  try {
-    console.log("Focusing workspace window");
-    
-    // Try to focus VS Code Extension Development Host if available
-    try {
-      await focusExtensionDevHost();
-    } catch (err) {
-      console.log("Extension Development Host focus failed, falling back to standard focus");
-    }
-    
-    // Fallback to standard VS Code focus command
-    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-    console.log("Workspace window focused");
-  } catch (err) {
-    console.warn("Failed to focus workspace window:", err);
-  }
-}
+// focusWorkspaceWindow removed; focusExtensionDevHost is now only called in typeIntoWorkspaceFile
 

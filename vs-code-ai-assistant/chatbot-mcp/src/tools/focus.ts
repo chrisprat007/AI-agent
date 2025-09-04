@@ -15,9 +15,9 @@ export async function focusExtensionDevHost() {
 
   // Minimize the current active window (if it's not already the target)
   const activeWin = windowManager.getActiveWindow();
-  if (activeWin && activeWin !== target) {
-    activeWin.minimize();
-  }
+  // if (activeWin && activeWin !== target) {
+  //   activeWin.minimize();
+  // }
 
   // Always try to restore first (safe, even if not minimized)
   target.restore();
