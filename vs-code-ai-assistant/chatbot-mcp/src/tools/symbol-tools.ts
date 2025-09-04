@@ -439,7 +439,9 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
-                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                 console.log("Focusing workspace window");
+                    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                    console.log("Workspace window focused");
                 const callResult: CallToolResult = {
                     content: [
                         {
@@ -542,7 +544,9 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
-                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                 console.log("Focusing workspace window");
+                    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                    console.log("Workspace window focused");
                 const callResult: CallToolResult = {
                     content: [
                         {
@@ -627,7 +631,9 @@ export function registerSymbolTools(server: McpServer): void {
                     }
                 }
                 
-                await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                 console.log("Focusing workspace window");
+                 await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                 console.log("Workspace window focused");
                 const callResult: CallToolResult = {
                     content: [
                         {

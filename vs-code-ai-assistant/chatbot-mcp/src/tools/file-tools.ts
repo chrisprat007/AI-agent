@@ -461,7 +461,9 @@ export function registerFileTools(server: McpServer): void {
 }
 async function focusWorkspaceWindow() {
   try {
-    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+    console.log("Focusing workspace window");
+       await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+       console.log("Workspace window focused");
   } catch (err) {
     logger.warn(`Failed to focus workspace window: ${err}`);
   }

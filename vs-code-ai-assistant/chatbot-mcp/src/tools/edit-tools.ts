@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from 'zod';
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { focusExtensionDevHost } from './focus.js';
 
 /**
  * Create a new file in the workspace and open it in the editor (non-preview).
@@ -175,8 +176,9 @@ export function registerEditTools(server: McpServer): void {
     },
     async ({ path, content, overwrite = false, ignoreIfExists = false }): Promise<CallToolResult> => {
       try {
-        await createWorkspaceFile(path, content, overwrite, ignoreIfExists);
         await focusWorkspaceWindow();
+        await createWorkspaceFile(path, content, overwrite, ignoreIfExists);
+        
         return {
           content: [
             { type: 'text', text: `File ${path} created and opened in editor` }
@@ -204,8 +206,9 @@ export function registerEditTools(server: McpServer): void {
       try {
         const zeroStart = startLine > 0 ? startLine - 1 : startLine;
         const zeroEnd = endLine > 0 ? endLine - 1 : endLine;
-        await replaceWorkspaceFileLines(path, zeroStart, zeroEnd, content, originalCode);
         await focusWorkspaceWindow();
+        await replaceWorkspaceFileLines(path, zeroStart, zeroEnd, content, originalCode);
+        
         return {
           content: [
             { type: 'text', text: `Lines ${startLine}-${endLine} in file ${path} replaced and file opened in editor` }
@@ -233,8 +236,9 @@ export function registerEditTools(server: McpServer): void {
       try {
         const line = insertAtLine > 0 ? insertAtLine - 1 : null;
         const col = insertAtColumn >= 0 ? insertAtColumn : null;
-        await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col);
         await focusWorkspaceWindow();
+        await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col);
+        
         return {
           content: [
             { type: 'text', text: `Typed into ${path} at ${speedMsPerChar}ms/char and saved.` }
@@ -249,8 +253,18 @@ export function registerEditTools(server: McpServer): void {
 }
 async function focusWorkspaceWindow() {
   try {
-    // This brings the main editor group into focus
+    console.log("Focusing workspace window");
+    
+    // Try to focus VS Code Extension Development Host if available
+    try {
+      await focusExtensionDevHost();
+    } catch (err) {
+      console.log("Extension Development Host focus failed, falling back to standard focus");
+    }
+    
+    // Fallback to standard VS Code focus command
     await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+    console.log("Workspace window focused");
   } catch (err) {
     console.warn("Failed to focus workspace window:", err);
   }

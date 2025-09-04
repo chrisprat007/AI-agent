@@ -113,7 +113,9 @@ export function registerShellTools(server: McpServer, terminal?: vscode.Terminal
         }
 
         const { output } = await executeShellCommand(terminal, command, cwd, timeout);
-        await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+         console.log("Focusing workspace window");
+            await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+            console.log("Workspace window focused");
         return { content: [{ type: 'text', text: `Command: ${command}\n\nOutput:\n${output}` }] };
       } catch (err) {
         console.error('[mcp:execute_shell_command] error', err);
@@ -135,7 +137,9 @@ export function registerShellTools(server: McpServer, terminal?: vscode.Terminal
         const target = vscode.Uri.joinPath(root, dir);
         const items = await vscode.workspace.fs.readDirectory(target);
         const files = items.map(([name, type]) => ({ name, isDirectory: !!(type & vscode.FileType.Directory) }));
-        await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+       console.log("Focusing workspace window");
+          await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+          console.log("Workspace window focused");
         return { content: [{ type: 'text', text: JSON.stringify(files, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: `Failed to list directory ${dir}: ${String(err)}` }] };

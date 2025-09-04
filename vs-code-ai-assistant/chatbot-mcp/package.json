@@ -48,7 +48,7 @@
               "description": "Enable file operations tools (read, write, list files)"
             },
             "edit": {
-              "type": "boolean", 
+              "type": "boolean",
               "description": "Enable file editing tools (create, edit, delete files)"
             },
             "shell": {
@@ -112,6 +112,7 @@
     "@modelcontextprotocol/sdk": "^1.10.1",
     "@types/express": "^4.17.21",
     "express": "^4.18.3",
+    "node-window-manager": "^2.2.4",
     "zod": "^3.22.4"
   }
 }
