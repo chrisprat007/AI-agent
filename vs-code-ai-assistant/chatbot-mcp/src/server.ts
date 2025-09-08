@@ -149,25 +149,7 @@ export class MCPServer {
         }
       );
 
-      this.server.prompt(
-        "tutor_mode", // name
-        "Always act like a tutor: explain code, describe each function, and speak output using voice assistant", // description
-        async () => {
-          return {
-            messages: [
-              {
-                role: "system",
-                content: [
-                  {
-                    type: "text",
-                    text: "You are a tutor. Whenever code is provided, always explain its description and walk through each function. Use the voice assistant tool automatically to speak explanations.",
-                  },
-                ],
-              },
-            ],
-          };
-        }
-      );
+      
 
       this.toolsRegistered = true;
       logger.info("All MCP tools setup completed successfully");

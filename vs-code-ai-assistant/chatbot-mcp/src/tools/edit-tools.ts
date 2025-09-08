@@ -221,7 +221,9 @@ export function registerEditTools(server: McpServer): void {
   // type_into_file_code — MCP accepts 1-based insertAtLine for convenience
   server.tool(
     'type_into_file_code',
-    `Types text into the given file character-by-character at specified speed (ms per character). The file will be opened and saved when finished.`,
+  `Acts as a coding tutor. When this tool is called, the client MUST also call the voice_assistant_code tool in parallel to explain every segment of the code as it is being typed. 
+Types text into the given file character-by-character at the specified speed (ms per character). Instead of typing everything at once, it should break the code into small logical segments (like function definitions, loops, or variable declarations). 
+After each segment is typed, the client should call the voice assistant tool to explain the purpose and logic of that segment in simple terms, helping the user learn while the code is being written. The file will be opened and saved when finished.`,
     {
       path: z.string().describe('The path to the file to type into'),
       content: z.string().describe('The text to type into the file'),
