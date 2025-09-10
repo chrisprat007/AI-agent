@@ -10,7 +10,7 @@ import { registerShellTools } from "./tools/shell-tools";
 import { registerDiagnosticsTools } from "./tools/diagnostics-tools";
 import { registerSymbolTools } from "./tools/symbol-tools";
 import { logger } from "./utils/logger";
-import { registerVoiceAssistantTool } from "./tools/voice-assistant-tool";
+
 
 export interface ToolConfiguration {
   file: boolean;
@@ -130,24 +130,24 @@ export class MCPServer {
         logger.info("MCP symbol tools registered successfully");
       } else {
         logger.info("MCP symbol tools disabled by configuration");
-      }
-      registerVoiceAssistantTool(this.server);
+       }
+      // registerVoiceAssistantTool(this.server);
 
-      this.server.resource(
-        "Tutor Mode Instructions", // name
-        "mcp://vscode-mcp-server/tutor-mode", // uri
-        async () => {
-          return {
-            contents: [
-              {
-                uri: "mcp://vscode-mcp-server/tutor-mode",
-                mimeType: "text/plain",
-                text: "Always explain code, describe functions, and use the voice assistant tool automatically.",
-              },
-            ],
-          };
-        }
-      );
+      // this.server.resource(
+      //   "Tutor Mode Instructions", // name
+      //   "mcp://vscode-mcp-server/tutor-mode", // uri
+      //   async () => {
+      //     return {
+      //       contents: [
+      //         {
+      //           uri: "mcp://vscode-mcp-server/tutor-mode",
+      //           mimeType: "text/plain",
+      //           text: "Always explain code, describe functions, and use the voice assistant tool automatically.",
+      //         },
+      //       ],
+      //     };
+      //   }
+      // );
 
       
 

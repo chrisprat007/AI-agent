@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from 'zod';
+import  say from 'say';
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { focusExtensionDevHost } from './focus.js';
+import { speakText } from "./voice-assistant-tool.js";
 
 /**
  * Create a new file in the workspace and open it in the editor (non-preview).
@@ -130,7 +132,6 @@ export async function typeIntoWorkspaceFile(
     const lastLine = document.lineCount - 1;
     position = new vscode.Position(lastLine, document.lineAt(lastLine).text.length);
   }
-
   // Insert characters one by one
   for (let i = 0; i < content.length; i++) {
     const ch = content[i];
@@ -220,34 +221,43 @@ export function registerEditTools(server: McpServer): void {
 
   // type_into_file_code — MCP accepts 1-based insertAtLine for convenience
   server.tool(
-    'type_into_file_code',
-  `Acts as a coding tutor. When this tool is called, the client MUST also call the voice_assistant_code tool in parallel to explain every segment of the code as it is being typed. 
-Types text into the given file character-by-character at the specified speed (ms per character). Instead of typing everything at once, it should break the code into small logical segments (like function definitions, loops, or variable declarations). 
-After each segment is typed, the client should call the voice assistant tool to explain the purpose and logic of that segment in simple terms, helping the user learn while the code is being written. The file will be opened and saved when finished.`,
-    {
-      path: z.string().describe('The path to the file to type into'),
-      content: z.string().describe('The text to type into the file'),
-      speedMsPerChar: z.number().optional().default(50).describe('Milliseconds delay between each character'),
-      insertAtLine: z.number().optional().default(-1).describe('1-based line number to insert at (default = end of file)'),
-      insertAtColumn: z.number().optional().default(-1).describe('0-based column to insert at (default = end of line)')
-    },
-    async ({ path, content, speedMsPerChar = 50, insertAtLine = -1, insertAtColumn = -1 }): Promise<CallToolResult> => {
-      try {
-        const line = insertAtLine > 0 ? insertAtLine - 1 : null;
-        const col = insertAtColumn >= 0 ? insertAtColumn : null;
-        await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col);
-        
-        return {
-          content: [
-            { type: 'text', text: `Typed into ${path} at ${speedMsPerChar}ms/char and saved.` }
-          ]
-        };
-      } catch (error) {
-        console.error('[type_into_file_code] Error:', error);
-        throw error;
-      }
+  "type_and_explain_code",
+  `Types code into a file character-by-character at the specified speed,
+   while simultaneously speaking a prepared explanation of the code.`,
+  {
+    path: z.string().describe("The path to the file to type into"),
+    content: z.string().describe("The code to type into the file"),
+    script: z.string().describe("The explanation to speak while typing"),
+    speedMsPerChar: z.number().optional().default(50).describe("Milliseconds delay between each character"),
+    insertAtLine: z.number().optional().default(-1).describe("1-based line number to insert at (default = end of file)"),
+    insertAtColumn: z.number().optional().default(-1).describe("0-based column to insert at (default = end of line)")
+  },
+  async ({ path, content, script, speedMsPerChar = 50, insertAtLine = -1, insertAtColumn = -1 }) => {
+    try {
+      const line = insertAtLine > 0 ? insertAtLine - 1 : null;
+      const col = insertAtColumn >= 0 ? insertAtColumn : null;
+
+      // Run typing and speaking in parallel
+     await Promise.all([
+  typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col),
+  speakText(script)
+]);
+
+
+      return {
+        content: [
+          { type: "text", text: `Typed code into ${path} and explained it via voice.` }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          { type: "text", text: `Failed: ${error}` }
+        ]
+      };
     }
-  );
+  }
+);
 }
 // focusWorkspaceWindow removed; focusExtensionDevHost is now only called in typeIntoWorkspaceFile
 
