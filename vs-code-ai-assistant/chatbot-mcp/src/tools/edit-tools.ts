@@ -109,22 +109,29 @@ export async function typeIntoWorkspaceFile(
   content: string,
   speedMsPerChar: number = 50,
   insertAtLine: number | null = null,
-  insertAtColumn: number | null = null
+  insertAtColumn: number | null = null,
+  script?: string   // optional explanation text
 ): Promise<void> {
   if (!vscode.workspace.workspaceFolders) {
-    throw new Error('No workspace folder is open');
+    throw new Error("No workspace folder is open");
   }
+
   const workspaceFolder = vscode.workspace.workspaceFolders[0];
   const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, workspacePath);
 
+  // Open the document and show it in an editor
   const document = await vscode.workspace.openTextDocument(fileUri);
-  const editor = await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false, viewColumn: vscode.ViewColumn.Active });
+  const editor = await vscode.window.showTextDocument(document, {
+    preview: false,
+    preserveFocus: false,
+    viewColumn: vscode.ViewColumn.Active,
+  });
+
   await focusExtensionDevHost();
 
   // Determine starting position
   let position: vscode.Position;
   if (insertAtLine !== null && insertAtColumn !== null) {
-    // Clamp to valid range
     const line = Math.max(0, Math.min(insertAtLine, document.lineCount - 1));
     const col = Math.max(0, Math.min(insertAtColumn, document.lineAt(line).text.length));
     position = new vscode.Position(line, col);
@@ -132,30 +139,38 @@ export async function typeIntoWorkspaceFile(
     const lastLine = document.lineCount - 1;
     position = new vscode.Position(lastLine, document.lineAt(lastLine).text.length);
   }
-  // Insert characters one by one
-  for (let i = 0; i < content.length; i++) {
-    const ch = content[i];
-    const ok = await editor.edit(editBuilder => {
-      editBuilder.insert(position, ch);
-    });
-    if (!ok) {
-      throw new Error('Failed to insert character');
-    }
 
-    // Update position
-    if (ch === '\n') {
-      position = new vscode.Position(position.line + 1, 0);
-    } else {
-      position = new vscode.Position(position.line, position.character + 1);
-    }
+  // ✅ Run typing and speaking in parallel
+  await Promise.all([
+    (async () => {
+      // Insert characters one by one
+      for (let i = 0; i < content.length; i++) {
+        const ch = content[i];
 
-    // Delay between characters
-    await new Promise(resolve => setTimeout(resolve, speedMsPerChar));
-  }
+        const ok = await editor.edit(editBuilder => {
+          editBuilder.insert(position, ch);
+        });
+        if (!ok) {
+          throw new Error("Failed to insert character");
+        }
 
-  await document.save();
+        // Update caret position
+        if (ch === "\n") {
+          position = new vscode.Position(position.line + 1, 0);
+        } else {
+          position = new vscode.Position(position.line, position.character + 1);
+        }
+
+        // Delay before inserting next character
+        await new Promise(resolve => setTimeout(resolve, speedMsPerChar));
+      }
+
+      // ✅ Save once all typing is finished
+      await document.save();
+    })(),
+    script ? speakText(script) : Promise.resolve(),
+  ]);
 }
-
 /**
  * Registers MCP edit-related tools on the provided McpServer.
  * Tools:
@@ -220,7 +235,7 @@ export function registerEditTools(server: McpServer): void {
   );
 
   // type_into_file_code — MCP accepts 1-based insertAtLine for convenience
-  server.tool(
+ server.tool(
   "type_and_explain_code",
   `Types code into a file character-by-character at the specified speed,
    while simultaneously speaking a prepared explanation of the code.`,
@@ -237,12 +252,8 @@ export function registerEditTools(server: McpServer): void {
       const line = insertAtLine > 0 ? insertAtLine - 1 : null;
       const col = insertAtColumn >= 0 ? insertAtColumn : null;
 
-      // Run typing and speaking in parallel
-     await Promise.all([
-  typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col),
-  speakText(script)
-]);
-
+      // ✅ Single call: typing + speaking in parallel handled inside the function
+      await typeIntoWorkspaceFile(path, content, speedMsPerChar, line, col, script);
 
       return {
         content: [
@@ -259,5 +270,3 @@ export function registerEditTools(server: McpServer): void {
   }
 );
 }
-// focusWorkspaceWindow removed; focusExtensionDevHost is now only called in typeIntoWorkspaceFile
-
