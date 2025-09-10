@@ -230,10 +230,10 @@ export function registerEditTools(server: McpServer): void {
       segments: z
         .array(
           z.object({
-            code: z.string().describe("The code segment to type"),
+            code: z.string().describe("The smallest possible code segment to type"),
             explanation: z
               .string()
-              .describe("The explanation for this code segment"),
+              .describe("The in-depth explanation for this code segment"),
           })
         )
         .describe("Array of code segments and their explanations"),
