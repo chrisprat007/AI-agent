@@ -13,6 +13,7 @@ import { speakText } from "./voice-assistant-tool.js";
  * @param overwrite whether to overwrite existing file
  * @param ignoreIfExists whether to ignore if file exists
  */
+
 export async function createWorkspaceFile(
   workspacePath: string,
   content: string,
@@ -57,7 +58,6 @@ function estimateSpeechDuration(text: string): number {
   const words = text.trim().split(/\s+/).length;
   return words * 0.4 * 1000; // milliseconds
 }
-
 
 /**
  * Replace specific lines in a file after validating original content.
@@ -222,147 +222,160 @@ export function registerEditTools(server: McpServer): void {
 
   // type_into_file_code: Accepts array of segments, types and explains each in sequence
   server.tool(
-    "type_into_file_code",
-    `Acts as a coding tutor. The client MUST send code as an array of segments, each with its explanation, using the 'segments' parameter. Each segment should be an object with 'code' (string) 
-    and 'explanation' (string). The tool will type each segment into the file and use the voice assistant tool to explain that segment, ensuring typing and speaking are synchronized.`,
-    {
-      path: z.string().describe("The path to the file to type into"),
-      segments: z
-        .array(
-          z.object({
-            code: z.string().describe("The smallest possible code segment to type"),
-            explanation: z
-              .string()
-              .describe("The in-depth explanation for this code segment"),
-          })
-        )
-        .describe("Array of code segments and their explanations"),
-      speedMsPerChar: z
-        .number()
-        .optional()
-        .default(50)
-        .describe("Milliseconds delay between each character"),
-      insertAtLine: z
-        .number()
-        .optional()
-        .default(-1)
-        .describe("1-based line number to insert at (default = end of file)"),
-      insertAtColumn: z
-        .number()
-        .optional()
-        .default(-1)
-        .describe("0-based column to insert at (default = end of line)"),
-    },
-    async (params: {
-      path: string;
-      segments: { code: string; explanation: string }[];
-      speedMsPerChar?: number;
-      insertAtLine?: number;
-      insertAtColumn?: number;
-    }): Promise<CallToolResult> => {
-      const {
-        path,
-        segments,
-        speedMsPerChar = 50,
-        insertAtLine = -1,
-        insertAtColumn = -1,
-      } = params;
-      try {
-        const line = insertAtLine > 0 ? insertAtLine - 1 : null;
-        const col = insertAtColumn >= 0 ? insertAtColumn : null;
-        // Helper: type code into file at speed, at given line/col
-        async function typeIntoWorkspaceFile(
-          filePath: string,
-          content: string,
-          speed: number,
-          insertAtLine: number | null,
-          insertAtColumn: number | null
-        ): Promise<void> {
-          if (!vscode.workspace.workspaceFolders)
-            throw new Error("No workspace folder is open");
-          const workspaceFolder = vscode.workspace.workspaceFolders[0];
-          const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
-          const document = await vscode.workspace.openTextDocument(fileUri);
-          const editor = await vscode.window.showTextDocument(document, {
-            preview: false,
-            preserveFocus: false,
-            viewColumn: vscode.ViewColumn.Active,
-          });
-          let position: vscode.Position;
-          if (insertAtLine !== null && insertAtColumn !== null) {
-            const line = Math.max(
-              0,
-              Math.min(insertAtLine, document.lineCount - 1)
-            );
-            const col = Math.max(
-              0,
-              Math.min(insertAtColumn, document.lineAt(line).text.length)
-            );
-            position = new vscode.Position(line, col);
-          } else {
-            const lastLine = document.lineCount - 1;
-            position = new vscode.Position(
-              lastLine,
-              document.lineAt(lastLine).text.length
-            );
-          }
-          await focusExtensionDevHost();
-          for (let i = 0; i < content.length; i++) {
-            const ch = content[i];
-            const ok = await editor.edit((editBuilder) => {
-              editBuilder.insert(position, ch);
-            });
-            if (!ok) throw new Error("Failed to insert character");
-            if (ch === "\n") {
-              position = new vscode.Position(position.line + 1, 0);
-            } else {
-              position = new vscode.Position(
-                position.line,
-                position.character + 1
-              );
-            }
-            await new Promise((resolve) => setTimeout(resolve, speed));
-          }
-          await document.save();
-        }
-        // Sequentially type and explain each segment
-        for (const segment of segments) {
-          let typingSpeed = speedMsPerChar; // default speed
+  "type_into_file_code",
+  `Acts as a coding tutor. The client MUST send code as an array of segments, each with its explanation, using the 'segments' parameter. Each segment should be an object with 'code' 
+  (string) and 'explanation' (string). IMPORTANT: The 'code' field sent by client must contain the exact code as it should appear in the file — DO NOT include escape sequences (e.g., use """ not \"\"\"). 
+  The tool will type each segment into the file and use the voice assistant tool to explain that segment, ensuring typing and speaking are synchronized. The client MUST NEVER include docstrings (triple-quoted strings) 
+  in the code lines sent for generation.`,
+  {
+    path: z.string().describe("The path to the file to type into"),
+    segments: z
+      .array(
+        z.object({
+          code: z
+            .string()
+            .describe(`The smallest possible code segment to type. never use docstring after any function or code `),
+          explanation: z
+            .string()
+            .describe("The in-depth explanation for this code segment"),
+        })
+      )
+      .describe("Array of code segments and their explanations"),
+    speedMsPerChar: z
+      .number()
+      .optional()
+      .default(50)
+      .describe("Milliseconds delay between each character"),
+    insertAtLine: z
+      .number()
+      .optional()
+      .default(-1)
+      .describe("1-based line number to insert at (default = end of file)"),
+    insertAtColumn: z
+      .number()
+      .optional()
+      .default(-1)
+      .describe("0-based column to insert at (default = end of line)"),
+  },
+  async (params: {
+    path: string;
+    segments: { code: string; explanation: string }[];
+    speedMsPerChar?: number;
+    insertAtLine?: number;
+    insertAtColumn?: number;
+  }): Promise<CallToolResult> => {
+    const {
+      path,
+      segments,
+      speedMsPerChar = 50,
+      insertAtLine = -1,
+      insertAtColumn = -1,
+    } = params;
 
-          if (segment.explanation) {
-            typingSpeed = calculateTypingSpeed(
-              segment.code,
-              segment.explanation
-            );
-          }
+    try {
+      const line = insertAtLine > 0 ? insertAtLine - 1 : null;
+      const col = insertAtColumn >= 0 ? insertAtColumn : null;
 
-          const tasks: Promise<any>[] = [];
+      // Helper: type code into file at speed, at given line/col
+      async function typeIntoWorkspaceFile(
+        filePath: string,
+        content: string,
+        speed: number,
+        insertAtLine: number | null,
+        insertAtColumn: number | null
+      ): Promise<void> {
+        if (!vscode.workspace.workspaceFolders)
+          throw new Error("No workspace folder is open");
 
-          // typing task with adjusted speed
-          tasks.push(
-            typeIntoWorkspaceFile(path, segment.code, typingSpeed, line, col)
+        const workspaceFolder = vscode.workspace.workspaceFolders[0];
+        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+        const document = await vscode.workspace.openTextDocument(fileUri);
+        const editor = await vscode.window.showTextDocument(document, {
+          preview: false,
+          preserveFocus: false,
+          viewColumn: vscode.ViewColumn.Active,
+        });
+
+        let position: vscode.Position;
+        if (insertAtLine !== null && insertAtColumn !== null) {
+          const line = Math.max(
+            0,
+            Math.min(insertAtLine, document.lineCount - 1)
           );
-
-          // speaking task
-          if (segment.explanation) {
-            tasks.push(speakText(segment.explanation));
-          }
-
-          await Promise.all(tasks);
+          const col = Math.max(
+            0,
+            Math.min(insertAtColumn, document.lineAt(line).text.length)
+          );
+          position = new vscode.Position(line, col);
+        } else {
+          const lastLine = document.lineCount - 1;
+          position = new vscode.Position(
+            lastLine,
+            document.lineAt(lastLine).text.length
+          );
         }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Typed and explained all segments into ${path} at ${speedMsPerChar}ms/char and saved.`,
-            },
-          ],
-        };
-      } catch (error) {
-        console.error("[type_into_file_code] Error:", error);
-        throw error;
+        await focusExtensionDevHost();
+
+        for (let i = 0; i < content.length; i++) {
+          const ch = content[i];
+          const ok = await editor.edit((editBuilder) => {
+            editBuilder.insert(position, ch);
+          });
+          if (!ok) throw new Error("Failed to insert character");
+
+          if (ch === "\n") {
+            position = new vscode.Position(position.line + 1, 0);
+          } else {
+            position = new vscode.Position(
+              position.line,
+              position.character + 1
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, speed));
+        }
+
+        await document.save();
       }
+
+      // Sequentially type and explain each segment
+      for (const segment of segments) {
+        let typingSpeed = speedMsPerChar; // default speed
+
+        if (segment.explanation) {
+          typingSpeed = calculateTypingSpeed(
+            segment.code,
+            segment.explanation
+          );
+        }
+
+        const tasks: Promise<any>[] = [];
+
+        // typing task with adjusted speed
+        tasks.push(
+          typeIntoWorkspaceFile(path, segment.code, typingSpeed, line, col)
+        );
+
+        // speaking task
+        if (segment.explanation) {
+          tasks.push(speakText(segment.explanation));
+        }
+
+        await Promise.all(tasks);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Typed and explained all segments into ${path} at ${speedMsPerChar}ms/char and saved.`,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("[type_into_file_code] Error:", error);
+      throw error;
     }
-  );
+  }
+);
 }

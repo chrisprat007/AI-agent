@@ -11,7 +11,6 @@ import { registerDiagnosticsTools } from "./tools/diagnostics-tools";
 import { registerSymbolTools } from "./tools/symbol-tools";
 import { logger } from "./utils/logger";
 
-
 export interface ToolConfiguration {
   file: boolean;
   edit: boolean;
@@ -130,26 +129,28 @@ export class MCPServer {
         logger.info("MCP symbol tools registered successfully");
       } else {
         logger.info("MCP symbol tools disabled by configuration");
-       }
+      }
       // registerVoiceAssistantTool(this.server);
 
-      // this.server.resource(
-      //   "Tutor Mode Instructions", // name
-      //   "mcp://vscode-mcp-server/tutor-mode", // uri
-      //   async () => {
-      //     return {
-      //       contents: [
-      //         {
-      //           uri: "mcp://vscode-mcp-server/tutor-mode",
-      //           mimeType: "text/plain",
-      //           text: "Always explain code, describe functions, and use the voice assistant tool automatically.",
-      //         },
-      //       ],
-      //     };
-      //   }
-      // );
-
-      
+      this.server.resource(
+        "Type into file code Instructions", // name
+        "mcp://vscode-mcp-server/type-into-file", // uri
+        async () => {
+          return {
+            contents: [
+              {
+                uri: "mcp://vscode-mcp-server/type-into-file",
+                mimeType: "text/plain",
+                text: `IMPORTANT INSTRUCTION:
+Always generate code exactly as it should appear in the file.
+DO NOT use escape sequences under any circumstance 
+(for example: use """ not \"\"\", use \n only as a real newline, not "\\n").
+Only produce plain, normal code lines.`,
+              },
+            ],
+          };
+        }
+      );
 
       this.toolsRegistered = true;
       logger.info("All MCP tools setup completed successfully");
