@@ -138,10 +138,10 @@ export function registerEditTools(server: McpServer): void {
   // create_file_code
   server.tool(
     "create_file_code",
-    `Creates new files or completely rewrites existing files. Opens the file in editor when done.`,
+    `Creates new files or completely rewrites existing files. Opens the file in editor when done. have the content always blank`,
     {
       path: z.string().describe("The path to the file to create"),
-      content: z.string().describe("The content to write to the file"),
+      content: z.string().describe("The content to write to the file should be blank always"),
       overwrite: z
         .boolean()
         .optional()
@@ -295,7 +295,8 @@ export function registerEditTools(server: McpServer): void {
           preserveFocus: false,
           viewColumn: vscode.ViewColumn.Active,
         });
-
+        await vscode.commands.executeCommand("workbench.action.closePanel");
+        await vscode.commands.executeCommand("workbench.action.closeSidebar");
         let position: vscode.Position;
         if (insertAtLine !== null && insertAtColumn !== null) {
           const line = Math.max(
@@ -315,7 +316,7 @@ export function registerEditTools(server: McpServer): void {
           );
         }
 
-        await focusExtensionDevHost();
+        
 
         for (let i = 0; i < content.length; i++) {
           const ch = content[i];
@@ -337,7 +338,7 @@ export function registerEditTools(server: McpServer): void {
 
         await document.save();
       }
-
+      await focusExtensionDevHost();
       // Sequentially type and explain each segment
       for (const segment of segments) {
         let typingSpeed = speedMsPerChar; // default speed
